@@ -47,10 +47,48 @@ In many cases, longer prompts provide more clarity \
 and context for the model, which can lead to \
 more detailed and relevant outputs.
 """
-prompt = f"""
-Summarize the text delimited by triple backticks \
-into a single sentence.
-```{text}```
+# prompt = f"""
+# Summarize the text delimited by triple backticks \
+# into a single sentence.
+# ```{text}```
+# """
+# response = get_completion(prompt)
+# print(response)
+
+# prompt = f"""
+# 输出三本书的名称，和它的作者，以及类型\
+# 用JSON格式，四个关键词，书籍号，书名，作者，类型。
+# ```{text}```
+# """
+
+# response = get_completion(prompt)
+# print(response)
+
+text = f"""
+In a charming village, siblings Jack and Jill set out on
+a quest to fetch water from a hilltop \
+well. As they climbed, singing joyfully, misfortune
+struck-Jack tripped on a stone and tumbled \
+down the hill, with Jill following suit. \
+Though slightly battered, the pair returned home to \
+comforting embraces. Despite the mishap,
+their adventurous spirits remained undimmed, and they
+continued exploring with delight.
 """
-response = get_completion(prompt)
+#example 1
+prompt_1 = f"""
+Perform the following actions:
+1 - Summarize the following text delimited by triple \
+backticks with 1 sentence.
+2 - Translate the summary into French.
+3 - List each name in the French summary.
+Output a json object that contains the following
+keys: french_summary, num_names.
+Separate your answers with line breaks.
+Text:
+'''{text}'''
+"""
+
+response = get_completion(prompt_1)
+print("Completion for prompt 1:")
 print(response)
