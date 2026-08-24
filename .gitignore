@@ -1,1 +1,5 @@
 .env
+
+.prompt_develop/__pycache__
+.debug.log
+
