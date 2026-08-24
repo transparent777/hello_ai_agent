@@ -64,31 +64,55 @@ more detailed and relevant outputs.
 # response = get_completion(prompt)
 # print(response)
 
-text = f"""
-In a charming village, siblings Jack and Jill set out on
-a quest to fetch water from a hilltop \
-well. As they climbed, singing joyfully, misfortune
-struck-Jack tripped on a stone and tumbled \
-down the hill, with Jill following suit. \
-Though slightly battered, the pair returned home to \
-comforting embraces. Despite the mishap,
-their adventurous spirits remained undimmed, and they
-continued exploring with delight.
-"""
-#example 1
-prompt_1 = f"""
-Perform the following actions:
-1 - Summarize the following text delimited by triple \
-backticks with 1 sentence.
-2 - Translate the summary into French.
-3 - List each name in the French summary.
-Output a json object that contains the following
-keys: french_summary, num_names.
-Separate your answers with line breaks.
-Text:
-'''{text}'''
+# text = f"""
+# In a charming village, siblings Jack and Jill set out on
+# a quest to fetch water from a hilltop \
+# well. As they climbed, singing joyfully, misfortune
+# struck-Jack tripped on a stone and tumbled \
+# down the hill, with Jill following suit. \
+# Though slightly battered, the pair returned home to \
+# comforting embraces. Despite the mishap,
+# their adventurous spirits remained undimmed, and they
+# continued exploring with delight.
+# """
+# #example 1
+# prompt_1 = f"""
+# Perform the following actions:
+# 1 - Summarize the following text delimited by triple \
+# backticks with 1 sentence.
+# 2 - Translate the summary into French.
+# 3 - List each name in the French summary.
+# Output a json object that contains the following
+# keys: french_summary, num_names.
+# Separate your answers with line breaks.
+# Text:
+# '''{text}'''
+# """
+
+# response = get_completion(prompt_1)
+# print("Completion for prompt 1:")
+# print(response)
+
+prod_review = """
+Got this panda plush toy for my daughter's birthday, \
+who loves it and takes it everywhere. It's soft and \
+super cute, and its face has a friendly look. It's \
+a bit small for what I paid though. I think there \
+might be other options that are bigger for the \
+same price. It arrived a day earlier than expected, \
+so I got to play with it myself before I gave it \
+to her.
 """
 
-response = get_completion(prompt_1)
-print("Completion for prompt 1:")
+prompt = f"""
+Your task is to generate a short summary of a product \
+review from an ecommerce site.
+
+Summarize the review below, delimited by triple 
+backticks, in at most 30 words.
+
+Review: ```{prod_review}```
+"""
+
+response = get_completion(prompt)
 print(response)
