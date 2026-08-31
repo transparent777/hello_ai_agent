@@ -7,8 +7,9 @@ from dataclasses import dataclass
 
 from pathlib import Path# 导入 Path：以对象方式处理文件路径
 from dotenv import load_dotenv# 从 python-dotenv 导入 load_dotenv：从 .env 文件加载密钥到环境变量
-from agents import Agent, Runner, RunConfig, RunContextWrapper# 从 openai-agents 导入核心类
+from agents import Agent, Runner, RunConfig, RunContextWrapper,  SQLiteSession# 从 openai-agents 导入核心类
 from agents.models.openai_provider import OpenAIProvider# 导入 OpenAIProvider：模型提供方
+from openai.types.responses import ResponseTextDeltaEvent
 from agents import function_tool
 
 if sys.platform == "win32":
@@ -34,3 +35,76 @@ deepseek_provider = OpenAIProvider(
     api_key=api_key,  
     base_url="https://api.deepseek.com",  
 )
+
+##session
+'''
+agent = Agent(
+    name="Tour guide",
+    instructions="Answer with compact travel facts.",
+    model="deepseek-chat", 
+)
+
+
+session = SQLiteSession("conversation_123")
+
+
+async def main() -> None:
+    first_turn = await Runner.run(
+        agent,
+        "What city is the Golden Gate Bridge in?",
+        session=session,
+        run_config=RunConfig(
+            model_provider=deepseek_provider,  
+            tracing_disabled=True
+        ),
+    )
+    print(first_turn.final_output)
+
+    second_turn = await Runner.run(
+        agent,
+        "What state is it in?",
+        session=session,
+        run_config=RunConfig(
+            model_provider=deepseek_provider,  
+            tracing_disabled=True
+            ),  
+    )
+    print(second_turn.final_output)
+
+'''
+
+#Stream runs incrementally
+agent = Agent(
+    name="Planet guide",
+    instructions="Answer with short facts.",
+    model="deepseek-chat", 
+)
+
+
+async def main() -> None:
+    stream = Runner.run_streamed(
+        agent,
+        "Give me three short facts about Saturn.",
+        run_config=RunConfig(
+            model_provider=deepseek_provider,  
+            tracing_disabled=True
+            ),  
+    )
+
+    async for event in stream.stream_events():
+        if event.type == "raw_response_event" and isinstance(
+            event.data, ResponseTextDeltaEvent
+        ):
+            print(event.data.delta, end="", flush=True)
+
+    # 规则：必须等 stream 完全结束，再读取 final_output
+    if stream.run_loop_exception:
+        raise stream.run_loop_exception
+
+    print(f"\nFinal: {stream.final_output}")
+
+
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
