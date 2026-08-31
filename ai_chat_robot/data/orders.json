@@ -1,0 +1,278 @@
+[
+  {
+    "order_id": "10001",
+    "user_id": "U787",
+    "status": "已签收",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF9672213749",
+    "eta": "2026-09-03",
+    "items": [
+      {
+        "product_id": "P0005",
+        "name": "轻薄笔记本电脑 14 寸",
+        "quantity": 1,
+        "unit_price": 5363
+      }
+    ],
+    "total": 5363
+  },
+  {
+    "order_id": "10002",
+    "user_id": "U939",
+    "status": "待发货",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF2614299040",
+    "eta": "2026-09-01",
+    "items": [
+      {
+        "product_id": "P0006",
+        "name": "智能手表 S2",
+        "quantity": 2,
+        "unit_price": 955
+      },
+      {
+        "product_id": "P0007",
+        "name": "USB-C 扩展坞",
+        "quantity": 1,
+        "unit_price": 238
+      }
+    ],
+    "total": 2148
+  },
+  {
+    "order_id": "10003",
+    "user_id": "U711",
+    "status": "运输中",
+    "carrier": "圆通速递",
+    "tracking_no": "SF3470288769",
+    "eta": "2026-09-04",
+    "items": [
+      {
+        "product_id": "P0003",
+        "name": "27 寸 4K 显示器",
+        "quantity": 2,
+        "unit_price": 1904
+      }
+    ],
+    "total": 3808
+  },
+  {
+    "order_id": "10004",
+    "user_id": "U403",
+    "status": "待发货",
+    "carrier": "圆通速递",
+    "tracking_no": "SF4817161971",
+    "eta": "2026-09-02",
+    "items": [
+      {
+        "product_id": "P0002",
+        "name": "机械键盘 87 键",
+        "quantity": 1,
+        "unit_price": 432
+      },
+      {
+        "product_id": "P0001",
+        "name": "无线蓝牙耳机 Pro",
+        "quantity": 1,
+        "unit_price": 350
+      }
+    ],
+    "total": 782
+  },
+  {
+    "order_id": "10005",
+    "user_id": "U270",
+    "status": "退款处理中",
+    "carrier": "中通快递",
+    "tracking_no": "SF4643677222",
+    "eta": "2026-09-04",
+    "items": [
+      {
+        "product_id": "P0002",
+        "name": "机械键盘 87 键",
+        "quantity": 1,
+        "unit_price": 432
+      },
+      {
+        "product_id": "P0002",
+        "name": "机械键盘 87 键",
+        "quantity": 2,
+        "unit_price": 432
+      },
+      {
+        "product_id": "P0006",
+        "name": "智能手表 S2",
+        "quantity": 2,
+        "unit_price": 955
+      }
+    ],
+    "total": 3206
+  },
+  {
+    "order_id": "10006",
+    "user_id": "U665",
+    "status": "退款处理中",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF6570598862",
+    "eta": "2026-09-01",
+    "items": [
+      {
+        "product_id": "P0001",
+        "name": "无线蓝牙耳机 Pro",
+        "quantity": 2,
+        "unit_price": 350
+      },
+      {
+        "product_id": "P0006",
+        "name": "智能手表 S2",
+        "quantity": 1,
+        "unit_price": 955
+      }
+    ],
+    "total": 1655
+  },
+  {
+    "order_id": "10007",
+    "user_id": "U760",
+    "status": "派送中",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF4140128973",
+    "eta": "2026-09-02",
+    "items": [
+      {
+        "product_id": "P0006",
+        "name": "智能手表 S2",
+        "quantity": 2,
+        "unit_price": 955
+      },
+      {
+        "product_id": "P0001",
+        "name": "无线蓝牙耳机 Pro",
+        "quantity": 2,
+        "unit_price": 350
+      },
+      {
+        "product_id": "P0007",
+        "name": "USB-C 扩展坞",
+        "quantity": 1,
+        "unit_price": 238
+      }
+    ],
+    "total": 2848
+  },
+  {
+    "order_id": "10008",
+    "user_id": "U910",
+    "status": "待发货",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF8647776019",
+    "eta": "2026-09-01",
+    "items": [
+      {
+        "product_id": "P0005",
+        "name": "轻薄笔记本电脑 14 寸",
+        "quantity": 1,
+        "unit_price": 5363
+      },
+      {
+        "product_id": "P0007",
+        "name": "USB-C 扩展坞",
+        "quantity": 2,
+        "unit_price": 238
+      },
+      {
+        "product_id": "P0001",
+        "name": "无线蓝牙耳机 Pro",
+        "quantity": 1,
+        "unit_price": 350
+      }
+    ],
+    "total": 6189
+  },
+  {
+    "order_id": "10009",
+    "user_id": "U977",
+    "status": "已签收",
+    "carrier": "京东物流",
+    "tracking_no": "SF9964226506",
+    "eta": "2026-09-03",
+    "items": [
+      {
+        "product_id": "P0008",
+        "name": "电竞鼠标",
+        "quantity": 2,
+        "unit_price": 374
+      }
+    ],
+    "total": 748
+  },
+  {
+    "order_id": "10010",
+    "user_id": "U801",
+    "status": "已签收",
+    "carrier": "京东物流",
+    "tracking_no": "SF7813208904",
+    "eta": "2026-09-02",
+    "items": [
+      {
+        "product_id": "P0002",
+        "name": "机械键盘 87 键",
+        "quantity": 1,
+        "unit_price": 432
+      }
+    ],
+    "total": 432
+  },
+  {
+    "order_id": "10011",
+    "user_id": "U902",
+    "status": "退款处理中",
+    "carrier": "中通快递",
+    "tracking_no": "SF5144635096",
+    "eta": "2026-09-02",
+    "items": [
+      {
+        "product_id": "P0007",
+        "name": "USB-C 扩展坞",
+        "quantity": 2,
+        "unit_price": 238
+      },
+      {
+        "product_id": "P0001",
+        "name": "无线蓝牙耳机 Pro",
+        "quantity": 1,
+        "unit_price": 350
+      }
+    ],
+    "total": 826
+  },
+  {
+    "order_id": "10012",
+    "user_id": "U330",
+    "status": "已签收",
+    "carrier": "顺丰速运",
+    "tracking_no": "SF1262941496",
+    "eta": "2026-09-04",
+    "items": [
+      {
+        "product_id": "P0004",
+        "name": "人体工学办公椅",
+        "quantity": 2,
+        "unit_price": 1297
+      },
+      {
+        "product_id": "P0004",
+        "name": "人体工学办公椅",
+        "quantity": 2,
+        "unit_price": 1297
+      },
+      {
+        "product_id": "P0004",
+        "name": "人体工学办公椅",
+        "quantity": 1,
+        "unit_price": 1297
+      }
+    ],
+    "total": 6485
+  }
+]
