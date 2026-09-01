@@ -35,7 +35,17 @@ from robot import (
     describe_interruptions,
     handle_user_turn,
 )
-from sandbox.runtime import ensure_workspace_synced, is_docker_available, sandbox_mode_label
+from sandbox.health import check_sandbox_health
+from sandbox.memory_sync import has_memory_summary
+from sandbox.metrics import get_metrics_summary
+from sandbox.runtime import (
+    analytics_backend_available,
+    ensure_workspace_synced,
+    is_docker_available,
+    sandbox_mode_label,
+)
+from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP, SANDBOX_PERSIST_SESSION, WEB_APP_API_KEY
+from sandbox.session_store import clear_persisted_session
 from ui_session_store import (
     append_message,
     clear_session_messages,
@@ -75,10 +85,39 @@ def _run_async(coro):
 
 def _sync_run_config() -> None:
     model = st.session_state.get("run_model", DEEPSEEK_FLASH)
-    st.session_state.run_config = build_run_config(
-        run_model=model,
-        with_sandbox=is_docker_available(),
-    )
+    session_id = st.session_state.agent_session.session_id
+    try:
+        st.session_state.run_config = build_run_config(
+            run_model=model,
+            with_sandbox=is_docker_available(),
+            session_id=session_id,
+        )
+        st.session_state.run_config_error = None
+    except RuntimeError as exc:
+        st.session_state.run_config = build_run_config(
+            run_model=model,
+            with_sandbox=False,
+            session_id=session_id,
+        )
+        st.session_state.run_config_error = str(exc)
+
+
+def _ensure_authenticated() -> bool:
+    if not WEB_APP_API_KEY:
+        return True
+    if st.session_state.get("web_authenticated"):
+        return True
+
+    st.title("🔐 访问验证")
+    st.caption("此实例已启用 WEB_APP_API_KEY 保护。")
+    entered = st.text_input("访问密钥", type="password", key="web_api_key_input")
+    if st.button("进入", type="primary"):
+        if entered == WEB_APP_API_KEY:
+            st.session_state.web_authenticated = True
+            st.rerun()
+        else:
+            st.error("密钥不正确")
+    return False
 
 
 def _load_session_into_ui(session_id: str) -> None:
@@ -86,10 +125,17 @@ def _load_session_into_ui(session_id: str) -> None:
     st.session_state.ui_messages = load_messages(UI_DB, session_id)
     st.session_state.pending_approval = None
     st.session_state.processing_prompt = None
+    _sync_run_config()
 
 
 def _init_state() -> None:
     ensure_workspace_synced()
+    if "web_authenticated" not in st.session_state:
+        st.session_state.web_authenticated = False
+    if "sandbox_health" not in st.session_state:
+        st.session_state.sandbox_health = None
+    if SANDBOX_HEALTH_CHECK_ON_STARTUP and is_docker_available():
+        st.session_state.sandbox_health = check_sandbox_health().to_dict()
     if "run_model" not in st.session_state:
         st.session_state.run_model = os.getenv("RUN_DEFAULT_MODEL") or DEEPSEEK_FLASH
 
@@ -98,6 +144,8 @@ def _init_state() -> None:
         _load_session_into_ui(default_id)
     if "run_config" not in st.session_state:
         _sync_run_config()
+    if "run_config_error" not in st.session_state:
+        st.session_state.run_config_error = None
     if "pending_approval" not in st.session_state:
         st.session_state.pending_approval = None
     if "processing_prompt" not in st.session_state:
@@ -138,6 +186,28 @@ def _render_sidebar() -> None:
         st.markdown("- 商品顾问 → Flash")
         st.markdown("- 订单客服 → Pro")
         st.markdown("- 数据分析 → Pro + " + sandbox_mode_label())
+        if SANDBOX_PERSIST_SESSION:
+            st.caption("同一会话内多次分析可恢复沙箱工作区与记忆")
+        if not analytics_backend_available():
+            st.warning("数据分析需要 Docker。请启动 Docker Desktop。")
+        if SANDBOX_PERSIST_SESSION:
+            sid = st.session_state.agent_session.session_id
+            mem = "有" if has_memory_summary(sid) else "无"
+            st.caption(f"沙箱持久化：开启 · 跨运行记忆：{mem}")
+        health = st.session_state.get("sandbox_health")
+        if health is not None:
+            status = "✅ 就绪" if health.get("ok") else "⚠️ 异常"
+            st.caption(f"沙箱健康检查：{status}")
+            if health.get("issues"):
+                for issue in health["issues"]:
+                    st.caption(f"- {issue}")
+        if st.session_state.get("run_config_error"):
+            st.error(st.session_state.run_config_error)
+
+        metrics = get_metrics_summary()
+        if metrics["counters"] or metrics["timings"]:
+            with st.expander("运行指标（本会话进程）", expanded=False):
+                st.json(metrics)
 
         st.divider()
 
@@ -191,8 +261,10 @@ def _render_sidebar() -> None:
 
         if st.button("清空当前会话记录", use_container_width=True):
             clear_session_messages(UI_DB, current_id)
+            clear_persisted_session(current_id)
             st.session_state.ui_messages = []
             st.session_state.pending_approval = None
+            _sync_run_config()
             st.rerun()
 
         if st.button("新建会话", use_container_width=True):
@@ -327,6 +399,8 @@ def _render_chat() -> None:
 
 def main() -> None:
     _init_state()
+    if not _ensure_authenticated():
+        return
     _render_sidebar()
     _render_chat()
 

@@ -304,7 +304,7 @@ python scripts/pricing.py --input data/orders.json
 | F5 | 退款审批 | 敏感操作 | 仍用现有 `process_refund` + Web 审批，不进沙箱改订单 | 保持现状 |
 | **G. 运行与持久化（按你的选择简化）** |
 | G1 | 对话 Session | 聊天记录 | 继续用现有 `SQLiteSession` + `ui_session_store` | 不变 |
-| G2 | 沙箱快照 | 跨 run 是否保留工作区文件 | **不保留**：每次分析任务新建沙箱；报表从 `output/` 拷到本机 `reports/` | **不跨天保留** |
+| G2 | 沙箱快照 | 跨 run 是否保留工作区文件 | **同一会话内保留**：`persist/{session_id}/sandbox_resume.json` resume；清空会话时删除 | **会话级持久化（E）** |
 | G3 | 报表落盘 | 用户怎么拿到 report.md | 任务结束后脚本把 `output/report.md` 复制到 `ai_chat_robot/reports/` | 待编码 |
 | G4 | Web 展示 | 是否在页面显示命令日志 | **不需要**；最多在客服回复里贴报表摘要或文件路径 | 不需要 |
 | **H. 验收场景（开发完怎么测）** |
@@ -339,9 +339,14 @@ python scripts/pricing.py --input data/orders.json
 | 材料 | 路径 | 说明 |
 |------|------|------|
 | 沙箱策略 | `sandbox/security.py` | Shell **仅允许** `python/python3` + `scripts/` 下脚本；禁止 rm/curl/bash 等 |
-| Docker 配置 | `sandbox/config.py` | `network_mode=none`（无外网）、`persist_session=False`（不跨天保留） |
+| Docker 配置 | `sandbox/config.py` | `network_mode=none`；`SANDBOX_PERSIST_SESSION` 控制 resume |
+| 会话持久化 | `sandbox/session_store.py` | `persist/{session_id}/sandbox_resume.json`（E1） |
+| 跨运行记忆 | `sandbox/memory_sync.py` | 从 `output/` 汇总到 `memories/memory_summary.md`（E2） |
 | 业务脚本 | `sandbox/scripts/*.py` | 分析订单 / 定价 / 生成报表 |
-| 工作区同步 | `sandbox/sync_workspace.py` | 把 `data/` 和 `scripts/` 复制到 `sandbox/workspace/` |
+| 工作区同步 | `sandbox/sync_workspace.py` | 把 `data/`、`repo/`、`scripts/` 复制到 `sandbox/workspace/` |
+| 任务规格 | `sandbox/repo/task.md`、`AGENTS.md` | 沙箱内任务说明与路径契约 |
+| Skills | `sandbox/skills/*/SKILL.md` | 懒加载：订单字段、定价规则 |
+| 产物审查 | `sandbox/artifact_review.py` | 出沙箱前拦截疑似密钥与超大文件 |
 | 环境变量示例 | `.env.sandbox.example` | Docker 镜像等可选项 |
 | 依赖声明 | `requirements.txt` | 已加入 `openai-agents[docker]`、`docker` |
 | 报表输出目录 | `reports/`、`sandbox/workspace/output/` | 已创建 |
@@ -353,12 +358,36 @@ python scripts/pricing.py --input data/orders.json
 | **1** | 安装 Docker Desktop | [下载安装](https://www.docker.com/products/docker-desktop/)，启动后保持运行 | 终端执行 `docker version` 无报错 |
 | **2** | 安装 Python 依赖 | `cd ai_chat_robot`<br>`pip install -r requirements.txt` | `python -c "import docker; import streamlit"` 无报错 |
 | **3** | 配置 DeepSeek 密钥 | 项目根 `.env` 写入 `DEEPSEEK_API_KEY=...` | 现有 Web 客服能正常回复 |
-| **4** | 生成并同步演示数据 | `python scripts/generate_catalog.py`<br>`python sandbox/sync_workspace.py` | 存在 `sandbox/workspace/data/orders.json` |
+| **4** | 生成并同步演示数据 | `python scripts/generate_catalog.py`<br>`python sandbox/sync_workspace.py` | 存在 `sandbox/workspace/data/orders.json` 与 `repo/task.md` |
 | **5** | 本机验证三个脚本 | `python sandbox/scripts/analyze_orders.py`<br>`python sandbox/scripts/pricing.py --category 外设 --discount 0.9`<br>`python sandbox/scripts/generate_report.py` | `sandbox/workspace/output/report.md` 有内容 |
 | **6** | （可选）自定义 Docker 镜像 | 复制 `.env.sandbox.example` 到 `.env`，设置 `SANDBOX_DOCKER_IMAGE` | 默认 `python:3.11-slim` 可不改 |
-| **7** | 等待下一步开发 | 将 `SandboxAgent` 接入 `robot.py` / `web_app.py` | 尚未编码，你完成 1～5 后告诉我 |
+| **7** | 沙箱 E2E 测试 | `python scripts/run_sandbox_e2e.py` | 输出 `PASS: sandbox E2E` |
 
-> **说明**：第 4～5 步每次更新 `data/` 或改脚本后建议重新执行 `sync_workspace.py`。
+#### 沙箱工作区路径契约
+
+```
+/workspace/
+├── repo/           # 只读：task.md、AGENTS.md
+├── data/           # 只读：orders.json、products.json
+├── scripts/        # 只读：分析脚本
+├── output/         # 可写：analysis_summary.json、pricing.json、report.md
+├── memories/       # 只读（若有）：memory_summary.md（跨运行记忆，E2）
+└── .agents/skills/ # Skills 懒加载挂载（宿主机 sandbox/skills/）
+```
+
+**批次 E：持久化与记忆**
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `SANDBOX_PERSIST_SESSION` | `true` | 同一会话内 resume 沙箱 `session_state` |
+| `SANDBOX_MEMORY_ENABLED` | `true` | 任务结束后把 output 摘要写入 `memories/memory_summary.md` |
+| `SANDBOX_PERSIST_ROOT` | `sandbox/persist` | 持久化根目录（已加入 `.gitignore`） |
+
+流程：分析完成 → `publish_workspace_outputs()` → `refresh_memory_summary()` → `persist_sandbox_session()`；下次同会话分析时 manifest 挂载 `memories/`，run config 注入已保存的 `session_state`。
+
+- 指令与脚本一律使用**相对路径**（如 `output/report.md`）。
+- `Manifest.environment` 仅放非密钥配置（如 `PYTHONUNBUFFERED`）；API 密钥留在宿主机 `.env`。
+- 产物复制到 `reports/` 前会经过 `artifact_review` 审查。
 
 ---
 
@@ -368,7 +397,7 @@ python scripts/pricing.py --input data/orders.json
 2. **首要场景**：分析 JSON / 报表 / 定价脚本 ✅  
 3. **数据从哪来**：脚本模拟 ✅  
 4. **Shell**：允许，白名单仅 `python` ✅  
-5. **跨天保留**：先不保留 ✅  
+5. **跨天保留**：会话级持久化（E）；清空会话或删 `persist/` 可重置 ✅  
 6. **Web 展示沙箱过程**：不需要 ✅  
 
 ---

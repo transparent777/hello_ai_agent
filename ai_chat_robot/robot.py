@@ -50,7 +50,24 @@ from sandbox.config import (
     build_sandbox_capabilities,
     merge_run_config_with_sandbox,
 )
-from sandbox.runtime import ensure_workspace_synced, is_docker_available, publish_workspace_outputs
+from sandbox.health import check_sandbox_health
+from sandbox.metrics import record_event, track_duration
+from sandbox.ops import run_with_retries, run_with_sandbox_slot
+from sandbox.memory_sync import refresh_memory_summary
+from sandbox.session_store import save_sandbox_resume_payload
+from sandbox.runtime import (
+    analytics_backend_available,
+    ensure_workspace_synced,
+    is_docker_available,
+    publish_workspace_outputs,
+    sandbox_mode_label,
+)
+from sandbox.settings import (
+    SANDBOX_ALLOW_LOCAL_FALLBACK,
+    SANDBOX_HEALTH_CHECK_ON_STARTUP,
+    SANDBOX_PERSIST_SESSION,
+    SANDBOX_RUN_TIMEOUT_SECONDS,
+)
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -118,6 +135,7 @@ def build_run_config(
     run_model: str | None = None,
     *,
     with_sandbox: bool | None = None,
+    session_id: str | None = None,
 ) -> RunConfig:
     model_name = run_model or os.getenv("RUN_DEFAULT_MODEL") or PROCESS_DEFAULT_MODEL
     if model_name not in KNOWN_MODELS:
@@ -133,11 +151,29 @@ def build_run_config(
     if not use_sandbox:
         return base
 
+    ensure_workspace_synced()
+    if SANDBOX_HEALTH_CHECK_ON_STARTUP:
+        health = check_sandbox_health()
+        if not health.ok:
+            raise RuntimeError("沙箱健康检查未通过: " + "; ".join(health.issues))
+    return merge_run_config_with_sandbox(
+        base,
+        session_id=session_id,
+        persist_session=SANDBOX_PERSIST_SESSION,
+    )
+
+
+def persist_sandbox_session(session_id: str | None, result: Any) -> None:
+    """保存沙箱 resume 状态（E1/E3：供下次 run 或审批后恢复）。"""
+    if not session_id or not SANDBOX_PERSIST_SESSION or result is None:
+        return
     try:
-        ensure_workspace_synced()
-        return merge_run_config_with_sandbox(base, persist_session=False)
-    except RuntimeError:
-        return base
+        run_state = result.to_state()
+        sandbox_payload = run_state._sandbox
+        if isinstance(sandbox_payload, dict):
+            save_sandbox_resume_payload(session_id, sandbox_payload)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -145,45 +181,56 @@ def build_run_config(
 # ---------------------------------------------------------------------------
 
 def _create_analytics_specialist():
-    """Docker 可用 → SandboxAgent；否则 → 本机脚本工具 Agent。"""
+    """Docker 可用 → SandboxAgent；显式允许时 → 本机脚本回退；否则 → 不可用占位 Agent。"""
     shared_instructions = (
         "你是电商数据分析专员。根据用户需求：\n"
         "- 分析订单数据 → 跑订单分析\n"
         "- 定价/打折模拟 → 跑定价脚本\n"
         "- 生成报表 → 跑报表脚本\n"
-        "用中文总结关键数字，并说明结果文件位置（output/ 或 reports/）。"
+        "开始前阅读 repo/task.md；若存在 memories/memory_summary.md 可参考历史分析。\n"
+        "用中文总结关键数字，并说明结果文件位置（如 output/report.md）。"
     )
 
     if is_docker_available():
-        try:
-            from agents.sandbox import SandboxAgent
+        from agents.sandbox import SandboxAgent
 
-            ensure_workspace_synced()
-            return SandboxAgent(
-                name="analytics_specialist",
-                handoff_description=(
-                    "处理订单数据分析、定价模拟、销售报表生成（Docker 沙箱）。"
-                ),
-                instructions=f"{SANDBOX_INSTRUCTIONS}\n\n{shared_instructions}",
-                model=pro_model,
-                model_settings=pro_settings,
-                default_manifest=build_manifest(),
-                capabilities=build_sandbox_capabilities(),
-            )
-        except Exception:
-            pass
+        ensure_workspace_synced()
+        return SandboxAgent(
+            name="analytics_specialist",
+            handoff_description=(
+                "处理订单数据分析、定价模拟、销售报表生成（Docker 沙箱）。"
+            ),
+            instructions=f"{SANDBOX_INSTRUCTIONS}\n\n{shared_instructions}",
+            model=pro_model,
+            model_settings=pro_settings,
+            default_manifest=build_manifest(),
+            capabilities=build_sandbox_capabilities(),
+        )
+
+    if SANDBOX_ALLOW_LOCAL_FALLBACK:
+        return Agent(
+            name="analytics_specialist",
+            handoff_description=(
+                "处理订单数据分析、定价模拟、销售报表生成（本机脚本回退）。"
+            ),
+            instructions=(
+                f"{shared_instructions}\n"
+                "使用工具 run_order_analysis / run_pricing_simulation / run_sales_report，"
+                "不要假装已经执行脚本。"
+            ),
+            tools=[run_order_analysis, run_pricing_simulation, run_sales_report],
+            model=pro_model,
+            model_settings=pro_settings,
+        )
 
     return Agent(
         name="analytics_specialist",
-        handoff_description=(
-            "处理订单数据分析、定价模拟、销售报表生成（本机脚本）。"
-        ),
+        handoff_description="数据分析需要 Docker 沙箱，当前环境不可用。",
         instructions=(
-            f"{shared_instructions}\n"
-            "使用工具 run_order_analysis / run_pricing_simulation / run_sales_report，"
-            "不要假装已经执行脚本。"
+            "你是电商数据分析专员，但当前 Docker 沙箱不可用。\n"
+            "请明确告知用户：需要启动 Docker Desktop 后才能进行订单分析、定价模拟或报表生成。\n"
+            "不要假装已经执行脚本或编造分析结果。"
         ),
-        tools=[run_order_analysis, run_pricing_simulation, run_sales_report],
         model=pro_model,
         model_settings=pro_settings,
     )
@@ -330,13 +377,18 @@ async def apply_approval_decision(
         else:
             state.reject(interruption)
 
-    return await resume_from_state(
+    text, result = await resume_from_state(
         run_result.last_agent,
         state,
         session,
         run_config,
         on_delta=on_delta,
     )
+    persist_sandbox_session(session.session_id, result)
+    if not result.interruptions:
+        publish_workspace_outputs()
+        refresh_memory_summary(session.session_id)
+    return text, result
 
 
 async def resolve_interruptions(
@@ -372,33 +424,61 @@ async def handle_user_turn(
     run_config: RunConfig,
     *,
     on_delta: Any | None = None,
+    actor: str | None = None,
 ) -> tuple[str | None, Any | None]:
     """处理一轮用户输入。返回 (回复文本, run_result)；审批暂停时 result 带 interruptions。"""
+    _ = actor
     try:
-        _, result = await run_streamed_turn(
-            agent, user_input, session, run_config, on_delta=on_delta
-        )
+        with track_duration("agent_turn_total_ms"):
+            async def _run_once() -> Any:
+                if run_config.sandbox is not None:
+                    return await run_with_sandbox_slot(
+                        lambda: run_streamed_turn(
+                            agent,
+                            user_input,
+                            session,
+                            run_config,
+                            on_delta=on_delta,
+                        ),
+                        timeout_seconds=SANDBOX_RUN_TIMEOUT_SECONDS,
+                    )
+                return await run_streamed_turn(
+                    agent, user_input, session, run_config, on_delta=on_delta
+                )
+
+            _, result = await run_with_retries(_run_once)
 
         if result.interruptions:
+            persist_sandbox_session(session.session_id, result)
+            record_event("agent_turn_interrupted")
             return None, result
 
-        publish_workspace_outputs()
+        published = publish_workspace_outputs()
+        refresh_memory_summary(session.session_id)
+        persist_sandbox_session(session.session_id, result)
+        record_event(
+            "agent_turn_completed",
+            sandbox=run_config.sandbox is not None,
+            published_files=len(published),
+        )
         return result.final_output, result
 
     except MaxTurnsExceeded:
+        record_event("agent_turn_max_turns_exceeded")
         print(
             f"\n[运行时失败] 超过最大轮次限制（max_turns={MAX_TURNS}）。"
             "请简化问题或提高 AGENT_MAX_TURNS。"
         )
     except Exception as exc:
+        record_event("agent_turn_failed", error=type(exc).__name__)
         print(f"\n[运行时失败] {type(exc).__name__}: {exc}")
 
     return None, None
 
 
 async def chat_loop() -> None:
-    run_config = build_run_config()
     session = SQLiteSession(SESSION_ID, db_path=SESSION_DB)
+    run_config = build_run_config(session_id=session.session_id)
 
     print("电商客服 Agent 已启动（流式 + Session 半托管）")
     print(f"Session ID: {SESSION_ID}")
@@ -430,8 +510,15 @@ async def chat_loop() -> None:
 
 async def main() -> None:
     ensure_workspace_synced()
-    mode = "Docker 沙箱" if is_docker_available() else "本机脚本回退"
-    print(f"电商客服 Agent 已启动 | 数据分析模式: {mode}")
+    if is_docker_available() and SANDBOX_HEALTH_CHECK_ON_STARTUP:
+        health = check_sandbox_health(pull_if_missing=True)
+        if not health.ok:
+            print("沙箱健康检查未通过:")
+            for issue in health.issues:
+                print(f"  - {issue}")
+    print(f"电商客服 Agent 已启动 | 数据分析: {sandbox_mode_label()}")
+    if not analytics_backend_available():
+        print("提示: 数据分析需要 Docker。请启动 Docker Desktop 后重试。")
     await chat_loop()
 
 

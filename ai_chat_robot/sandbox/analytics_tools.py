@@ -1,4 +1,4 @@
-"""数据分析工具（本机回退）：Docker 不可用时由普通 Agent 调用。"""
+"""数据分析工具（本机回退）：仅当 SANDBOX_ALLOW_LOCAL_FALLBACK=true 时可用。"""
 
 from __future__ import annotations
 
@@ -9,12 +9,25 @@ from pathlib import Path
 from agents import function_tool
 
 from sandbox.config import SCRIPTS_DIR
+from sandbox.audit import log_audit_event
 from sandbox.runtime import ensure_workspace_synced, publish_workspace_outputs
+from sandbox.settings import SANDBOX_ALLOW_LOCAL_FALLBACK
 
 PYTHON = sys.executable
 
 
+def _fallback_disabled_message() -> str:
+    return (
+        "本机脚本回退已禁用（P0 安全策略）。请启动 Docker Desktop 后重试数据分析。"
+        "若仅为本地开发，可设置 SANDBOX_ALLOW_LOCAL_FALLBACK=true。"
+    )
+
+
 def _run_script(script_name: str, *args: str) -> str:
+    if not SANDBOX_ALLOW_LOCAL_FALLBACK:
+        log_audit_event("local_fallback_blocked", status="blocked", detail=script_name)
+        return _fallback_disabled_message()
+
     ensure_workspace_synced()
     script = SCRIPTS_DIR / script_name
     if not script.exists():
@@ -31,6 +44,12 @@ def _run_script(script_name: str, *args: str) -> str:
     )
     output = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
+    log_audit_event(
+        "local_fallback_exec",
+        command=" ".join(cmd),
+        exit_code=result.returncode,
+        status="ok" if result.returncode == 0 else "error",
+    )
     if result.returncode != 0:
         return f"脚本执行失败（exit {result.returncode}）\n{err}\n{output}".strip()
 

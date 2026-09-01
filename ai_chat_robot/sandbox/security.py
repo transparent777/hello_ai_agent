@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import shlex
+import time
 
 from agents.sandbox.capabilities.tools.shell_tool import ExecCommandArgs
 from agents.sandbox.capabilities.shell import ShellToolSet
+
+from sandbox.audit import log_audit_event
+from sandbox.settings import SANDBOX_EXEC_TIMEOUT_SECONDS
 
 # 允许的命令前缀（小写比较）
 _ALLOWED_PREFIXES = (
@@ -27,13 +32,20 @@ _BLOCKED_PATTERNS = re.compile(
 SANDBOX_INSTRUCTIONS = """
 你在隔离沙箱 /workspace 中工作，只能使用 exec_command 执行 Python 脚本。
 
-硬性规则：
-1. 只允许执行 `python` 或 `python3` 命令，且必须运行 /workspace/scripts/ 下的脚本。
-2. 禁止 rm、curl、wget、bash、pip install 等任何非 Python 启动命令。
-3. 只读分析 data/ 下的 JSON；结果写入 output/，不要修改 data/ 源文件。
-4. 沙箱无外网，不要尝试下载或访问 URL。
+启动时请阅读：
+- repo/task.md — 任务规格与标准命令
+- repo/AGENTS.md — 路径与读写边界
+- 按需使用 Skills（订单字段、定价规则）
 
-推荐命令示例：
+硬性规则：
+1. 只允许执行 `python` 或 `python3`，且必须运行 scripts/ 下的脚本。
+2. 禁止 rm、curl、wget、bash、pip install 等任何非 Python 启动命令。
+3. 只读分析 data/ 下的 JSON；结果写入 output/，不要修改 data/、scripts/、repo/。
+4. 沙箱无外网，不要尝试下载或访问 URL。
+5. 一律使用工作区相对路径，例如 data/orders.json、output/report.md。
+6. 若存在 memories/memory_summary.md，可参考历史分析结论，但仍需执行脚本验证。
+
+推荐命令：
 - python scripts/analyze_orders.py
 - python scripts/pricing.py --category 外设 --discount 0.9
 - python scripts/generate_report.py
@@ -84,10 +96,55 @@ def restrict_shell_toolset(toolset: ShellToolSet) -> None:
     original_run = exec_tool.run
 
     async def guarded_run(args: ExecCommandArgs) -> str:
+        started = time.perf_counter()
+        command = args.cmd
         try:
-            assert_python_only_command(args.cmd)
+            assert_python_only_command(command)
         except ValueError as exc:
+            log_audit_event(
+                "shell_exec_blocked",
+                command=command,
+                status="blocked",
+                detail=str(exc),
+            )
             return f"BLOCKED_BY_POLICY: {exc}"
-        return await original_run(args)
+
+        try:
+            result = await asyncio.wait_for(
+                original_run(args),
+                timeout=SANDBOX_EXEC_TIMEOUT_SECONDS,
+            )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            log_audit_event(
+                "shell_exec",
+                command=command,
+                status="ok",
+                duration_ms=duration_ms,
+            )
+            return result
+        except asyncio.TimeoutError:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            log_audit_event(
+                "shell_exec_timeout",
+                command=command,
+                status="timeout",
+                duration_ms=duration_ms,
+                detail=f"超过 {SANDBOX_EXEC_TIMEOUT_SECONDS}s",
+            )
+            return (
+                f"BLOCKED_BY_POLICY: 命令执行超时（>{SANDBOX_EXEC_TIMEOUT_SECONDS}s）: "
+                f"{command!r}"
+            )
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            log_audit_event(
+                "shell_exec_failed",
+                command=command,
+                status="error",
+                duration_ms=duration_ms,
+                detail=str(exc),
+            )
+            raise
 
     exec_tool.run = guarded_run  # type: ignore[method-assign]
+

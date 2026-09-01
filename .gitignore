@@ -1,5 +1,11 @@
 .env
 
+ai_chat_robot/logs/
+ai_chat_robot/reports/
+ai_chat_robot/sandbox/persist/
 .prompt_develop/__pycache__
 .debug.log
+.Building Systems
+.openai_start
+.prompt_develop
 
