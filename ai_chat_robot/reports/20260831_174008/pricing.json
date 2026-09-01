@@ -1,0 +1,22 @@
+{
+  "category_filter": "外设",
+  "discount": 0.9,
+  "items": [
+    {
+      "product_id": "P0002",
+      "name": "机械键盘 87 键",
+      "category": "外设",
+      "original_price": 432,
+      "discounted_price": 388.8,
+      "discount": 0.9
+    },
+    {
+      "product_id": "P0008",
+      "name": "电竞鼠标",
+      "category": "外设",
+      "original_price": 374,
+      "discounted_price": 336.6,
+      "discount": 0.9
+    }
+  ]
+}

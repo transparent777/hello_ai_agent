@@ -39,6 +39,18 @@ from agents import (
 from agents.exceptions import MaxTurnsExceeded
 
 from ecommerce_tools import get_order_status, process_refund, search_products
+from sandbox.analytics_tools import (
+    run_order_analysis,
+    run_pricing_simulation,
+    run_sales_report,
+)
+from sandbox.config import (
+    SANDBOX_INSTRUCTIONS,
+    build_manifest,
+    build_sandbox_capabilities,
+    merge_run_config_with_sandbox,
+)
+from sandbox.runtime import ensure_workspace_synced, is_docker_available, publish_workspace_outputs
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -102,22 +114,82 @@ SESSION_ID = os.getenv("ECOMMERCE_SESSION_ID", "ecommerce_customer_session")
 MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "12"))
 
 
-def build_run_config(run_model: str | None = None) -> RunConfig:
+def build_run_config(
+    run_model: str | None = None,
+    *,
+    with_sandbox: bool | None = None,
+) -> RunConfig:
     model_name = run_model or os.getenv("RUN_DEFAULT_MODEL") or PROCESS_DEFAULT_MODEL
     if model_name not in KNOWN_MODELS:
         raise ValueError(f"未知模型 {model_name!r}，请使用 {sorted(KNOWN_MODELS)}")
-    return RunConfig(
+    base = RunConfig(
         model_provider=deepseek_provider,
         model=model_name,
         tracing_disabled=True,
-        # 模型误调了不属于当前 Agent 的工具时，把错误回传给模型让其改 handoff，而不是直接崩溃
         tool_not_found_behavior="return_error_to_model",
     )
+
+    use_sandbox = is_docker_available() if with_sandbox is None else with_sandbox
+    if not use_sandbox:
+        return base
+
+    try:
+        ensure_workspace_synced()
+        return merge_run_config_with_sandbox(base, persist_session=False)
+    except RuntimeError:
+        return base
 
 
 # ---------------------------------------------------------------------------
 # Agents
 # ---------------------------------------------------------------------------
+
+def _create_analytics_specialist():
+    """Docker 可用 → SandboxAgent；否则 → 本机脚本工具 Agent。"""
+    shared_instructions = (
+        "你是电商数据分析专员。根据用户需求：\n"
+        "- 分析订单数据 → 跑订单分析\n"
+        "- 定价/打折模拟 → 跑定价脚本\n"
+        "- 生成报表 → 跑报表脚本\n"
+        "用中文总结关键数字，并说明结果文件位置（output/ 或 reports/）。"
+    )
+
+    if is_docker_available():
+        try:
+            from agents.sandbox import SandboxAgent
+
+            ensure_workspace_synced()
+            return SandboxAgent(
+                name="analytics_specialist",
+                handoff_description=(
+                    "处理订单数据分析、定价模拟、销售报表生成（Docker 沙箱）。"
+                ),
+                instructions=f"{SANDBOX_INSTRUCTIONS}\n\n{shared_instructions}",
+                model=pro_model,
+                model_settings=pro_settings,
+                default_manifest=build_manifest(),
+                capabilities=build_sandbox_capabilities(),
+            )
+        except Exception:
+            pass
+
+    return Agent(
+        name="analytics_specialist",
+        handoff_description=(
+            "处理订单数据分析、定价模拟、销售报表生成（本机脚本）。"
+        ),
+        instructions=(
+            f"{shared_instructions}\n"
+            "使用工具 run_order_analysis / run_pricing_simulation / run_sales_report，"
+            "不要假装已经执行脚本。"
+        ),
+        tools=[run_order_analysis, run_pricing_simulation, run_sales_report],
+        model=pro_model,
+        model_settings=pro_settings,
+    )
+
+
+analytics_specialist = _create_analytics_specialist()
 
 product_specialist = Agent(
     name="product_specialist",
@@ -152,10 +224,11 @@ customer_service_router = Agent(
         "规则：\n"
         "1. 商品/推荐/库存 → 必须 transfer_to_product_specialist\n"
         "2. 订单/物流/退换货/售后 → 必须 transfer_to_order_specialist\n"
-        "3. 即使对话历史里出现过订单或商品查询，新消息仍必须先转接，不能代查\n"
-        "4. 仅简单问候可自行回复"
+        "3. 数据分析/报表/定价模拟 → 必须 transfer_to_analytics_specialist\n"
+        "4. 即使对话历史里出现过查询，新消息仍必须先转接，不能代查\n"
+        "5. 仅简单问候可自行回复"
     ),
-    handoffs=[product_specialist, order_specialist],
+    handoffs=[product_specialist, order_specialist, analytics_specialist],
     model_settings=flash_settings,
 )
 
@@ -309,6 +382,7 @@ async def handle_user_turn(
         if result.interruptions:
             return None, result
 
+        publish_workspace_outputs()
         return result.final_output, result
 
     except MaxTurnsExceeded:
@@ -355,6 +429,9 @@ async def chat_loop() -> None:
 
 
 async def main() -> None:
+    ensure_workspace_synced()
+    mode = "Docker 沙箱" if is_docker_available() else "本机脚本回退"
+    print(f"电商客服 Agent 已启动 | 数据分析模式: {mode}")
     await chat_loop()
 
 

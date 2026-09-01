@@ -35,6 +35,7 @@ from robot import (
     describe_interruptions,
     handle_user_turn,
 )
+from sandbox.runtime import ensure_workspace_synced, is_docker_available, sandbox_mode_label
 from ui_session_store import (
     append_message,
     clear_session_messages,
@@ -74,7 +75,10 @@ def _run_async(coro):
 
 def _sync_run_config() -> None:
     model = st.session_state.get("run_model", DEEPSEEK_FLASH)
-    st.session_state.run_config = build_run_config(run_model=model)
+    st.session_state.run_config = build_run_config(
+        run_model=model,
+        with_sandbox=is_docker_available(),
+    )
 
 
 def _load_session_into_ui(session_id: str) -> None:
@@ -85,6 +89,7 @@ def _load_session_into_ui(session_id: str) -> None:
 
 
 def _init_state() -> None:
+    ensure_workspace_synced()
     if "run_model" not in st.session_state:
         st.session_state.run_model = os.getenv("RUN_DEFAULT_MODEL") or DEEPSEEK_FLASH
 
@@ -132,6 +137,7 @@ def _render_sidebar() -> None:
         st.caption("专员模型（Agent 级，不可在此页切换）")
         st.markdown("- 商品顾问 → Flash")
         st.markdown("- 订单客服 → Pro")
+        st.markdown("- 数据分析 → Pro + " + sandbox_mode_label())
 
         st.divider()
 
@@ -178,7 +184,9 @@ def _render_sidebar() -> None:
         st.markdown(
             "- 有没有适合办公的键盘？\n"
             "- 查订单 10001 物流\n"
-            "- 订单 10001 申请退款，商品有瑕疵"
+            "- 订单 10001 申请退款，商品有瑕疵\n"
+            "- 分析一下订单数据\n"
+            "- 生成销售报表"
         )
 
         if st.button("清空当前会话记录", use_container_width=True):
@@ -284,7 +292,8 @@ def _render_chat() -> None:
     st.title("🛒 电商智能客服")
     run_model = st.session_state.run_config.model
     st.caption(
-        f"流式输出 · Session 记忆 · 退款审批 · 当前前台模型：`{run_model}`"
+        f"流式输出 · Session 记忆 · 退款审批 · 前台模型：`{run_model}` · "
+        f"数据分析：{sandbox_mode_label()}"
     )
 
     # 先渲染全部历史（含用户 + 客服）

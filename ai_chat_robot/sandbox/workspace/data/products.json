@@ -1,0 +1,66 @@
+[
+  {
+    "id": "P0001",
+    "name": "无线蓝牙耳机 Pro",
+    "category": "数码",
+    "price": 350,
+    "stock": 33,
+    "description": "降噪长续航，适合通勤"
+  },
+  {
+    "id": "P0002",
+    "name": "机械键盘 87 键",
+    "category": "外设",
+    "price": 432,
+    "stock": 194,
+    "description": "青轴手感，办公游戏两用"
+  },
+  {
+    "id": "P0003",
+    "name": "27 寸 4K 显示器",
+    "category": "显示器",
+    "price": 1904,
+    "stock": 67,
+    "description": "IPS 面板，Type-C 一线通"
+  },
+  {
+    "id": "P0004",
+    "name": "人体工学办公椅",
+    "category": "家具",
+    "price": 1297,
+    "stock": 40,
+    "description": "腰托可调，久坐舒适"
+  },
+  {
+    "id": "P0005",
+    "name": "轻薄笔记本电脑 14 寸",
+    "category": "电脑",
+    "price": 5363,
+    "stock": 31,
+    "description": "16G 内存，512G SSD"
+  },
+  {
+    "id": "P0006",
+    "name": "智能手表 S2",
+    "category": "穿戴",
+    "price": 955,
+    "stock": 194,
+    "description": "心率血氧监测，7 天续航"
+  },
+  {
+    "id": "P0007",
+    "name": "USB-C 扩展坞",
+    "category": "配件",
+    "price": 238,
+    "stock": 27,
+    "description": "HDMI + 网口 + SD 卡槽"
+  },
+  {
+    "id": "P0008",
+    "name": "电竞鼠标",
+    "category": "外设",
+    "price": 374,
+    "stock": 113,
+    "description": "轻量化设计，无线低延迟"
+  }
+]
