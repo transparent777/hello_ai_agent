@@ -52,6 +52,7 @@ from ui_session_store import (
     init_ui_store,
     list_sessions,
     load_messages,
+    touch_session,
 )
 
 UI_DB = SESSION_DB
@@ -125,7 +126,15 @@ def _load_session_into_ui(session_id: str) -> None:
     st.session_state.ui_messages = load_messages(UI_DB, session_id)
     st.session_state.pending_approval = None
     st.session_state.processing_prompt = None
+    # 避免 selectbox 仍记住旧 session_id，把新建/切换的会话又切回去
+    st.session_state.pop("session_picker", None)
     _sync_run_config()
+
+
+def _create_new_session() -> None:
+    new_id = f"web_{uuid.uuid4().hex[:8]}"
+    touch_session(UI_DB, new_id, title="新对话")
+    _load_session_into_ui(new_id)
 
 
 def _init_state() -> None:
@@ -218,6 +227,8 @@ def _render_sidebar() -> None:
 
         if sessions:
             options = [s["session_id"] for s in sessions]
+            if current_id not in options:
+                options = [current_id, *options]
             labels = {
                 s["session_id"]: (
                     f"{s.get('title') or s['session_id']} "
@@ -225,10 +236,12 @@ def _render_sidebar() -> None:
                 )
                 for s in sessions
             }
+            if current_id not in labels:
+                labels[current_id] = f"新对话（{current_id}）"
             picked = st.selectbox(
                 "切换会话",
                 options=options,
-                index=options.index(current_id) if current_id in options else 0,
+                index=options.index(current_id),
                 format_func=lambda sid: labels.get(sid, sid),
                 key="session_picker",
             )
@@ -268,8 +281,7 @@ def _render_sidebar() -> None:
             st.rerun()
 
         if st.button("新建会话", use_container_width=True):
-            new_id = f"web_{uuid.uuid4().hex[:8]}"
-            _load_session_into_ui(new_id)
+            _create_new_session()
             st.rerun()
 
 
