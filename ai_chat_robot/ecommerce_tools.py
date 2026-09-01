@@ -7,6 +7,8 @@ from pathlib import Path
 
 from agents import function_tool
 
+from guardrails import validate_order_id, validate_refund_request
+
 DATA_DIR = Path(__file__).resolve().parent / "data"
 PRODUCTS_FILE = DATA_DIR / "products.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
@@ -60,7 +62,7 @@ def search_products(keyword: str) -> str:
     return "搜索结果：\n" + "\n".join(lines)
 
 
-@function_tool
+@function_tool(tool_input_guardrails=[validate_order_id])
 def get_order_status(order_id: str) -> str:
     """查询订单状态、物流与预计送达时间。"""
     order = _find_order(order_id)
@@ -82,7 +84,10 @@ def get_order_status(order_id: str) -> str:
     )
 
 
-@function_tool(needs_approval=True)
+@function_tool(
+    needs_approval=True,
+    tool_input_guardrails=[validate_order_id, validate_refund_request],
+)
 def process_refund(order_id: str, reason: str) -> str:
     """为指定订单发起退款申请（敏感操作，需人工审批）。"""
     order = _find_order(order_id)

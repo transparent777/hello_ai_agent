@@ -132,6 +132,28 @@ customer_service_router（前台，Run 默认 Flash）
 
 ---
 
+## 护栏与人工审核
+
+| 机制 | 实现 | 文件 |
+|------|------|------|
+| **A. 输入护栏** | 链首 Agent（`customer_service_router`）上挂 3 条阻塞式 `@input_guardrail`（`run_in_parallel=False`）：提示注入、敏感外泄、离题请求 | `guardrails.py` |
+| **B. 人工审核** | `process_refund` 设 `needs_approval=True`；运行暂停后检查 `interruptions`，`state.approve/reject` 后从同一 `RunState` 恢复 | `robot.py` / `web_app.py` |
+| **C. 工具护栏** | 副作用工具旁校验参数：`validate_order_id`、`validate_refund_request`（执行前审查，非仅靠 Agent 级护栏） | `ecommerce_tools.py` |
+| **D. 输出护栏** | 商品/订单专员最终输出检查密钥、内部路径泄露 | `guardrails.py` |
+| **审计** | 护栏拦截与审批决策写入 `logs/sandbox_audit.jsonl` | `sandbox/audit.py` |
+
+环境变量：`GUARDRAILS_ENABLED=true`（默认开启，可在 `.env` 关闭）。
+
+**审批生命周期要点**（与 SDK 一致）：
+
+1. 运行记录的是「批准中断」，不是直接执行工具  
+2. `result.to_state()` 可恢复同一轮  
+3. Web 审批按钮走 `apply_approval_decision()`，不会新开 user turn  
+4. 流式结束后才读 `interruptions`；审批后再次流式恢复  
+5. **审批持久化**：`persist/{session_id}/approval_pending.json` 保存 `RunState.to_json()`，刷新页面可恢复（`APPROVAL_PERSIST_ENABLED`）
+
+---
+
 ## 常见问题
 
 ### `Tool get_order_status not found in agent customer_service_router`

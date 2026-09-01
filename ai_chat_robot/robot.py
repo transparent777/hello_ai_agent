@@ -36,9 +36,30 @@ from agents import (
     SQLiteSession,
     set_tracing_disabled,
 )
-from agents.exceptions import MaxTurnsExceeded
+from agents.exceptions import (
+    InputGuardrailTripwireTriggered,
+    MaxTurnsExceeded,
+    OutputGuardrailTripwireTriggered,
+    ToolInputGuardrailTripwireTriggered,
+)
 
+from approval_store import (
+    PendingApprovalRecord,
+    build_pending_record,
+    clear_pending_approval,
+    load_pending_approval,
+    save_pending_approval,
+)
 from ecommerce_tools import get_order_status, process_refund, search_products
+from guardrails import (
+    GUARDRAILS_ENABLED,
+    ROUTER_INPUT_GUARDRAILS,
+    SPECIALIST_OUTPUT_GUARDRAILS,
+    describe_interruption_detail,
+    format_input_guardrail_message,
+    format_output_guardrail_message,
+    log_approval_decision,
+)
 from sandbox.analytics_tools import (
     run_order_analysis,
     run_pricing_simulation,
@@ -248,6 +269,7 @@ product_specialist = Agent(
     tools=[search_products],
     model=flash_model,
     model_settings=flash_settings,
+    output_guardrails=SPECIALIST_OUTPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
 )
 
 order_specialist = Agent(
@@ -261,6 +283,7 @@ order_specialist = Agent(
     tools=[get_order_status, process_refund],
     model=pro_model,
     model_settings=pro_settings,
+    output_guardrails=SPECIALIST_OUTPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
 )
 
 customer_service_router = Agent(
@@ -277,7 +300,38 @@ customer_service_router = Agent(
     ),
     handoffs=[product_specialist, order_specialist, analytics_specialist],
     model_settings=flash_settings,
+    input_guardrails=ROUTER_INPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
 )
+
+AGENT_REGISTRY: dict[str, Agent] = {
+    "customer_service_router": customer_service_router,
+    "product_specialist": product_specialist,
+    "order_specialist": order_specialist,
+    "analytics_specialist": analytics_specialist,
+}
+
+
+def get_agent_by_name(name: str) -> Agent:
+    agent = AGENT_REGISTRY.get(name)
+    if agent is None:
+        raise ValueError(f"未知 Agent：{name!r}")
+    return agent
+
+
+def restore_pending_approval(session_id: str) -> PendingApprovalRecord | None:
+    """从磁盘恢复待审批快照（Web 刷新/切换会话后调用）。"""
+    return load_pending_approval(session_id)
+
+
+def capture_pending_approval(session_id: str, run_result: Any) -> PendingApprovalRecord:
+    """运行暂停时序列化 RunState 并落盘。"""
+    record = build_pending_record(
+        session_id,
+        run_result,
+        interruption_summaries=describe_interruptions(run_result),
+    )
+    save_pending_approval(record)
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -355,14 +409,13 @@ async def resume_from_state(
 
 
 def describe_interruptions(run_result: Any) -> list[str]:
-    return [
-        f"工具 `{getattr(i, 'tool_name', 'unknown')}` 需要人工审批"
-        for i in run_result.interruptions
-    ]
+    if isinstance(run_result, PendingApprovalRecord):
+        return run_result.describe()
+    return [describe_interruption_detail(i) for i in run_result.interruptions]
 
 
 async def apply_approval_decision(
-    run_result: Any,
+    pending: PendingApprovalRecord | Any,
     session: SQLiteSession,
     run_config: RunConfig,
     *,
@@ -370,24 +423,51 @@ async def apply_approval_decision(
     on_delta: Any | None = None,
 ) -> tuple[str, Any]:
     """审批后从 state 恢复，继续同一轮任务。"""
-    state = run_result.to_state()
-    for interruption in run_result.interruptions:
+    from agents.run_state import RunState
+
+    if isinstance(pending, PendingApprovalRecord):
+        record = pending
+        if record.live_result is not None:
+            state = record.live_result.to_state()
+            interruptions = list(record.live_result.interruptions)
+        else:
+            state = await RunState.from_json(
+                customer_service_router,
+                record.run_state_json,
+            )
+            interruptions = state.get_interruptions()
+        resume_agent = get_agent_by_name(record.resume_agent_name)
+    else:
+        run_result = pending
+        state = run_result.to_state()
+        interruptions = list(run_result.interruptions)
+        resume_agent = run_result.last_agent
+
+    for interruption in interruptions:
         if approved:
             state.approve(interruption)
         else:
             state.reject(interruption)
 
+    log_approval_decision(
+        session_id=session.session_id,
+        approved=approved,
+        interruptions=interruptions,
+    )
+
     text, result = await resume_from_state(
-        run_result.last_agent,
+        resume_agent,
         state,
         session,
         run_config,
         on_delta=on_delta,
     )
     persist_sandbox_session(session.session_id, result)
-    if not result.interruptions:
-        publish_workspace_outputs()
-        refresh_memory_summary(session.session_id)
+    if result.interruptions:
+        return text, capture_pending_approval(session.session_id, result)
+    clear_pending_approval(session.session_id)
+    publish_workspace_outputs()
+    refresh_memory_summary(session.session_id)
     return text, result
 
 
@@ -449,9 +529,10 @@ async def handle_user_turn(
             _, result = await run_with_retries(_run_once)
 
         if result.interruptions:
+            pending = capture_pending_approval(session.session_id, result)
             persist_sandbox_session(session.session_id, result)
             record_event("agent_turn_interrupted")
-            return None, result
+            return None, pending
 
         published = publish_workspace_outputs()
         refresh_memory_summary(session.session_id)
@@ -463,6 +544,17 @@ async def handle_user_turn(
         )
         return result.final_output, result
 
+    except InputGuardrailTripwireTriggered as exc:
+        record_event("input_guardrail_triggered")
+        message = format_input_guardrail_message(exc)
+        return message, None
+    except OutputGuardrailTripwireTriggered as exc:
+        record_event("output_guardrail_triggered")
+        message = format_output_guardrail_message(exc)
+        return message, None
+    except ToolInputGuardrailTripwireTriggered as exc:
+        record_event("tool_input_guardrail_triggered")
+        return f"**安全拦截**：工具调用未通过执行前审查（{exc.guardrail.get_name()}）。", None
     except MaxTurnsExceeded:
         record_event("agent_turn_max_turns_exceeded")
         print(
@@ -503,6 +595,9 @@ async def chat_loop() -> None:
         )
         if result and result.interruptions:
             result = await resolve_interruptions(result, session, run_config)
+            text = result.final_output
+        elif isinstance(result, PendingApprovalRecord) and result.live_result is not None:
+            result = await resolve_interruptions(result.live_result, session, run_config)
             text = result.final_output
         if text:
             print()

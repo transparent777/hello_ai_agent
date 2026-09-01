@@ -23,6 +23,7 @@ if str(_APP_DIR) not in sys.path:
 from agents import SQLiteSession
 from agents.exceptions import MaxTurnsExceeded
 
+from approval_store import PendingApprovalRecord, has_pending_approval
 from robot import (
     DEEPSEEK_FLASH,
     DEEPSEEK_PRO,
@@ -34,6 +35,7 @@ from robot import (
     customer_service_router,
     describe_interruptions,
     handle_user_turn,
+    restore_pending_approval,
 )
 from sandbox.health import check_sandbox_health
 from sandbox.memory_sync import has_memory_summary
@@ -124,8 +126,8 @@ def _ensure_authenticated() -> bool:
 def _load_session_into_ui(session_id: str) -> None:
     st.session_state.agent_session = SQLiteSession(session_id, db_path=SESSION_DB)
     st.session_state.ui_messages = load_messages(UI_DB, session_id)
-    st.session_state.pending_approval = None
     st.session_state.processing_prompt = None
+    st.session_state.pending_approval = restore_pending_approval(session_id)
     # 避免 selectbox 仍记住旧 session_id，把新建/切换的会话又切回去
     st.session_state.pop("session_picker", None)
     _sync_run_config()
@@ -203,6 +205,11 @@ def _render_sidebar() -> None:
             sid = st.session_state.agent_session.session_id
             mem = "有" if has_memory_summary(sid) else "无"
             st.caption(f"沙箱持久化：开启 · 跨运行记忆：{mem}")
+        from guardrails import GUARDRAILS_ENABLED
+
+        st.caption(f"输入/输出护栏：{'开启' if GUARDRAILS_ENABLED else '关闭'}")
+        if has_pending_approval(st.session_state.agent_session.session_id):
+            st.info("本会话有未完成的审批（已持久化，刷新页面仍可继续）")
         health = st.session_state.get("sandbox_health")
         if health is not None:
             status = "✅ 就绪" if health.get("ok") else "⚠️ 异常"
@@ -307,7 +314,10 @@ def _handle_approval(approved: bool) -> None:
         )
         st.session_state.pending_approval = None
 
-        if result.interruptions:
+        if isinstance(result, PendingApprovalRecord):
+            st.session_state.pending_approval = result
+            content = buffer["text"] or "_仍有待审批操作…_"
+        elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
             content = buffer["text"] or "_仍有待审批操作…_"
         else:
@@ -359,7 +369,11 @@ def _process_pending_prompt() -> None:
             st.rerun()
             return
 
-        if result and result.interruptions:
+        if isinstance(result, PendingApprovalRecord):
+            st.session_state.pending_approval = result
+            note = buffer["text"] or "_已触发敏感操作，请在下方审批…_"
+            _append_and_persist("assistant", note)
+        elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
             note = buffer["text"] or "_已触发敏感操作，请在下方审批…_"
             _append_and_persist("assistant", note)
@@ -387,6 +401,10 @@ def _render_chat() -> None:
 
     if st.session_state.pending_approval:
         st.warning("⚠️ 有待审批的敏感操作（暂停的任务，不是新对话）")
+        st.caption(
+            "审批记录的是「批准执行工具」。决策后从同一 RunState 继续；"
+            "状态已持久化，刷新页面仍可审批。"
+        )
         for desc in describe_interruptions(st.session_state.pending_approval):
             st.write(f"- {desc}")
         c1, c2 = st.columns(2)
