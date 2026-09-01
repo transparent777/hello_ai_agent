@@ -18,6 +18,7 @@ from agents.tool_guardrails import ToolInputGuardrailData
 import file_tools
 from file_tools import (
     ensure_workspace,
+    export_products_csv_impl,
     list_files_impl,
     read_file_impl,
     resolve_safe_path,
@@ -68,6 +69,7 @@ def test_read_write_roundtrip():
             write_file_impl("demo/x.txt", "hello agent")
             out = read_file_impl("demo/x.txt")
             assert "hello agent" in out
+            assert "```" not in out  # 纯文本不再包代码块
         finally:
             _restore_workspace(original)
 
@@ -111,6 +113,36 @@ def test_validate_file_tool_path_rejects_traversal():
     assert result.behavior["type"] == "reject_content"
 
 
+def test_read_data_products_json():
+    from file_agent_settings import DATA_READ_ROOT
+
+    if not (DATA_READ_ROOT / "products.json").exists():
+        return
+    out = read_file_impl("data/products.json")
+    assert "products.json" in out
+    assert "```json" in out
+
+
+def test_export_products_csv_has_bom():
+    from file_agent_settings import DATA_READ_ROOT
+
+    if not (DATA_READ_ROOT / "products.json").exists():
+        return
+    with tempfile.TemporaryDirectory() as td:
+        original = _with_workspace(Path(td))
+        try:
+            ensure_workspace()
+            msg = export_products_csv_impl("exports/products.csv")
+            assert "已导出" in msg
+            raw = (Path(td) / "exports" / "products.csv").read_bytes()
+            assert raw.startswith(b"\xef\xbb\xbf"), "CSV 应带 UTF-8 BOM 供 Excel 识别"
+            text = raw.decode("utf-8-sig")
+            assert "商品名称" in text
+            assert "无线蓝牙耳机" in text
+        finally:
+            _restore_workspace(original)
+
+
 if __name__ == "__main__":
     test_resolve_safe_path_blocks_traversal()
     test_resolve_safe_path_allows_nested()
@@ -118,4 +150,6 @@ if __name__ == "__main__":
     test_list_files_shows_entries()
     test_allow_file_task_query()
     test_validate_file_tool_path_rejects_traversal()
+    test_read_data_products_json()
+    test_export_products_csv_has_bom()
     print("test_file_tools: OK")

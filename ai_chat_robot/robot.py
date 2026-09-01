@@ -53,7 +53,14 @@ from approval_store import (
 )
 from ecommerce_tools import get_order_status, process_refund, search_products
 from file_agent_settings import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
-from file_tools import ensure_workspace, list_files, read_file, write_file
+from file_tools import (
+    ensure_workspace,
+    export_orders_csv,
+    export_products_csv,
+    list_files,
+    read_file,
+    write_file,
+)
 from guardrails import (
     GUARDRAILS_ENABLED,
     ROUTER_INPUT_GUARDRAILS,
@@ -325,18 +332,22 @@ def _create_file_specialist() -> Agent | None:
     return Agent(
         name="file_specialist",
         handoff_description=(
-            "处理 workspace_user 工作区内的文件：列出目录、读取、写入（写入需人工审批）。"
+            "读取 data/ 全量 JSON、导出商品/订单 CSV 清单（Excel 不乱码），"
+            "或处理 workspace_user 内文件读写（写入需审批）。"
         ),
         instructions=(
-            "你是文件处理专员，只能在宿主机工作区操作文件。\n"
-            f"工作区根目录：{workspace_label}\n"
+            "你是文件与数据专员，可访问两类路径（均用相对路径）：\n"
+            f"1. **data/**（只读）：电商全量 JSON，如 data/products.json、data/orders.json\n"
+            f"2. **workspace_user/**（可读写）：用户工作区，根目录 {workspace_label}\n"
             "规则：\n"
-            "1. 所有路径均为**相对于工作区根**的相对路径，例如 demo/hello.txt、notes/todo.md。\n"
-            "2. 先 list_files 了解结构，再 read_file 查看内容；需要保存时调用 write_file（会触发人工审批）。\n"
-            "3. 不要访问工作区外的路径；不要编造未读取到的文件内容。\n"
-            "4. 用中文简洁说明操作结果与相对路径。"
+            "- 用户要**导出 CSV/Excel 清单** → 必须调用 export_products_csv 或 export_orders_csv，"
+            "不要手写 CSV 字符串（易乱码）\n"
+            "- 导出默认路径：exports/products.csv、exports/orders.csv\n"
+            "- 查原始 JSON → read_file('data/products.json') 等\n"
+            "- 普通文本写入 → write_file（会触发人工审批）；.csv 写入会自动加 UTF-8 BOM\n"
+            "- 用中文说明文件路径与条数"
         ),
-        tools=[list_files, read_file, write_file],
+        tools=[list_files, read_file, write_file, export_products_csv, export_orders_csv],
         model=pro_model,
         model_settings=pro_settings,
         output_guardrails=SPECIALIST_OUTPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
@@ -364,7 +375,7 @@ def _router_instructions() -> str:
     ]
     if file_specialist is not None:
         lines.append(
-            "4. 工作区文件/目录读写、整理文本 → 必须 transfer_to_file_specialist"
+            "4. 导出 CSV/Excel 清单、查看 JSON、读写 workspace 文件 → transfer_to_file_specialist"
         )
         lines.append("5. 即使对话历史里出现过查询，新消息仍必须先转接，不能代查")
         lines.append("6. 仅简单问候可自行回复")

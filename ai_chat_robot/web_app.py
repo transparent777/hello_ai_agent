@@ -12,6 +12,7 @@ import asyncio
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -29,7 +30,6 @@ from robot import (
     DEEPSEEK_FLASH,
     DEEPSEEK_PRO,
     SESSION_DB,
-    SESSION_ID,
     _script_dir,
     apply_approval_decision,
     build_run_config,
@@ -53,10 +53,11 @@ from tracing_setup import get_recent_trace_count, tracing_status_summary
 from ui_session_store import (
     append_message,
     clear_session_messages,
+    count_messages,
     init_ui_store,
     list_sessions,
     load_messages,
-    touch_session,
+    prune_empty_sessions,
 )
 
 UI_DB = SESSION_DB
@@ -68,10 +69,9 @@ MODEL_SHORT = {
 QUICK_PROMPTS = [
     "有没有适合办公的键盘？",
     "查订单 10001 物流",
-    "订单 10001 申请退款，商品有瑕疵",
+    "导出商品清单为 CSV",
     "分析一下订单数据",
-    "生成销售报表",
-    "列出工作区文件，并读取 demo/hello.txt",
+    "列出可访问的文件目录",
 ]
 
 st.set_page_config(
@@ -94,6 +94,15 @@ st.markdown(
         --border: #e5e7eb;
         --user-bubble: #4f46e5;
         --bot-bubble: #f3f4f6;
+        --font-sans: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+            "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+        --font-mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei",
+            "Consolas", monospace;
+    }
+    html, body, .stApp, [data-testid="stMarkdownContainer"],
+    div[data-testid="stChatMessageContent"], .stTextInput input, textarea {
+        font-family: var(--font-sans) !important;
+        -webkit-font-smoothing: antialiased;
     }
     .stApp { background: var(--bg); }
   header[data-testid="stHeader"] { background: transparent; }
@@ -115,7 +124,7 @@ st.markdown(
         font-weight: 700;
         color: var(--text);
         margin: 0 0 0.25rem 0;
-        letter-spacing: -0.02em;
+        letter-spacing: 0;
     }
     .app-hero p {
         color: var(--muted);
@@ -153,7 +162,25 @@ st.markdown(
     div[data-testid="stChatMessageContent"] {
         border-radius: 14px !important;
         padding: 0.85rem 1rem !important;
-        line-height: 1.55 !important;
+        line-height: 1.7 !important;
+        font-size: 0.95rem !important;
+    }
+    /* JSON/代码块：等宽 + 中文字体回退，避免 Windows 下中文挤成一团 */
+    div[data-testid="stChatMessageContent"] pre,
+    div[data-testid="stChatMessageContent"] code,
+    .stMarkdown pre, .stMarkdown code {
+        font-family: var(--font-mono) !important;
+        font-size: 0.86rem !important;
+        line-height: 1.65 !important;
+        letter-spacing: 0 !important;
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+    }
+    div[data-testid="stChatMessageContent"] pre {
+        padding: 0.75rem 1rem !important;
+        border-radius: 8px !important;
+        background: #f8fafc !important;
+        border: 1px solid var(--border) !important;
     }
     div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"])
         div[data-testid="stChatMessageContent"] {
@@ -220,11 +247,29 @@ def _sync_run_config() -> None:
         st.session_state.run_config_error = str(exc)
 
 
+def _format_session_time(iso: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    now = datetime.now()
+    if dt.date() == now.date():
+        return dt.strftime("今天 %H:%M")
+    return dt.strftime("%m-%d %H:%M")
+
+
 def _session_label(s: dict) -> str:
-    title = (s.get("title") or "新对话").strip()
-    if len(title) > 22:
-        title = title[:22] + "…"
-    return f"{title} · {s['message_count']}条"
+    title = (s.get("title") or "对话").strip()
+    if title == s.get("session_id"):
+        title = "对话"
+    if len(title) > 26:
+        title = title[:26] + "…"
+    n = int(s.get("message_count") or 0)
+    t = _format_session_time(str(s.get("updated_at") or ""))
+    suffix = f"{n} 条"
+    if t:
+        suffix = f"{suffix} · {t}"
+    return f"{title}（{suffix}）"
 
 
 def _system_status() -> tuple[str, str]:
@@ -258,28 +303,51 @@ def _ensure_authenticated() -> bool:
     return False
 
 
-def _load_session_into_ui(session_id: str) -> None:
+def _load_session_into_ui(session_id: str, *, bump_nav: bool = False) -> None:
     st.session_state.agent_session = SQLiteSession(session_id, db_path=SESSION_DB)
     st.session_state.ui_messages = load_messages(UI_DB, session_id)
-    st.session_state.processing_prompt = None
     st.session_state.pending_approval = restore_pending_approval(session_id)
-    st.session_state.pop("session_picker", None)
+    if bump_nav:
+        st.session_state.session_nav_token = (
+            st.session_state.get("session_nav_token", 0) + 1
+        )
     _sync_run_config()
 
 
+def _new_session_id() -> str:
+    return f"web_{uuid.uuid4().hex[:8]}"
+
+
+def _switch_session(session_id: str) -> None:
+    if session_id == st.session_state.agent_session.session_id:
+        return
+    _load_session_into_ui(session_id, bump_nav=True)
+    st.rerun()
+
+
 def _create_new_session() -> None:
-    new_id = f"web_{uuid.uuid4().hex[:8]}"
-    touch_session(UI_DB, new_id, title="新对话")
-    _load_session_into_ui(new_id)
+    new_id = _new_session_id()
+    _load_session_into_ui(new_id, bump_nav=True)
+    st.session_state.pending_approval = None
+
+
+def _resolve_initial_session_id() -> str:
+    sessions = list_sessions(UI_DB, min_messages=1)
+    if sessions:
+        return str(sessions[0]["session_id"])
+    return _new_session_id()
 
 
 def _init_state() -> None:
     ensure_workspace_synced()
+    prune_empty_sessions(UI_DB)
     from tracing_setup import configure_tracing
 
     configure_tracing()
     if "web_authenticated" not in st.session_state:
         st.session_state.web_authenticated = False
+    if "session_nav_token" not in st.session_state:
+        st.session_state.session_nav_token = 0
     if "sandbox_health" not in st.session_state:
         st.session_state.sandbox_health = None
     if SANDBOX_HEALTH_CHECK_ON_STARTUP and is_docker_available():
@@ -288,16 +356,17 @@ def _init_state() -> None:
         st.session_state.run_model = os.getenv("RUN_DEFAULT_MODEL") or DEEPSEEK_FLASH
 
     if "agent_session" not in st.session_state:
-        default_id = f"{SESSION_ID}_web"
-        _load_session_into_ui(default_id)
+        _load_session_into_ui(_resolve_initial_session_id())
+    if "ui_messages" not in st.session_state:
+        st.session_state.ui_messages = load_messages(
+            UI_DB, st.session_state.agent_session.session_id
+        )
     if "run_config" not in st.session_state:
         _sync_run_config()
     if "run_config_error" not in st.session_state:
         st.session_state.run_config_error = None
     if "pending_approval" not in st.session_state:
         st.session_state.pending_approval = None
-    if "processing_prompt" not in st.session_state:
-        st.session_state.processing_prompt = None
 
 
 def _append_and_persist(role: str, content: str) -> None:
@@ -310,10 +379,8 @@ def _append_and_persist(role: str, content: str) -> None:
     )
 
 
-def _submit_user_prompt(prompt: str) -> None:
-    _append_and_persist("user", prompt)
-    st.session_state.processing_prompt = prompt
-    st.rerun()
+def _is_ephemeral_session(session_id: str) -> bool:
+    return count_messages(UI_DB, session_id) == 0
 
 
 def _render_advanced_settings(current_id: str) -> None:
@@ -356,6 +423,7 @@ def _render_advanced_settings(current_id: str) -> None:
 def _render_sidebar() -> None:
     current_id = st.session_state.agent_session.session_id
     level, status_text = _system_status()
+    nav_token = st.session_state.session_nav_token
 
     with st.sidebar:
         if st.button("＋ 新对话", type="primary", use_container_width=True):
@@ -369,27 +437,42 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        sessions = list_sessions(UI_DB)
-        if sessions:
-            options = [s["session_id"] for s in sessions]
-            if current_id not in options:
-                options = [current_id, *options]
-            labels = {s["session_id"]: _session_label(s) for s in sessions}
-            if current_id not in labels:
-                labels[current_id] = "新对话 · 0条"
+        sessions = list_sessions(UI_DB, min_messages=1)
+        session_ids = [str(s["session_id"]) for s in sessions]
+        labels = {str(s["session_id"]): _session_label(s) for s in sessions}
+
+        if _is_ephemeral_session(current_id):
+            st.caption("当前：新对话（发送首条消息后保存到历史）")
+            if sessions:
+                picker_key = f"history_picker_{nav_token}"
+                selected_history = st.selectbox(
+                    "切换到历史对话",
+                    options=session_ids,
+                    index=None,
+                    placeholder="选择历史对话…",
+                    format_func=lambda sid: labels.get(sid, sid),
+                    key=picker_key,
+                    label_visibility="collapsed",
+                )
+                # 仅当用户主动从下拉框选择时才切换（不能用 if picked，默认第一项会立刻跳回旧会话）
+                if selected_history and selected_history != current_id:
+                    _switch_session(selected_history)
+        elif sessions:
+            if current_id not in session_ids:
+                session_ids = [current_id, *session_ids]
+                labels[current_id] = "当前对话"
             picked = st.selectbox(
                 "历史对话",
-                options=options,
-                index=options.index(current_id),
+                options=session_ids,
+                index=session_ids.index(current_id),
                 format_func=lambda sid: labels.get(sid, sid),
-                key="session_picker",
+                key=f"session_picker_{nav_token}",
                 label_visibility="collapsed",
             )
             if picked != current_id:
-                _load_session_into_ui(picked)
-                st.rerun()
+                _switch_session(picked)
         else:
-            st.caption("发送消息后自动保存")
+            st.caption("发送消息后自动出现在这里")
 
         st.divider()
 
@@ -412,16 +495,17 @@ def _render_sidebar() -> None:
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
             st.session_state.pending_approval = None
-            _sync_run_config()
+            _load_session_into_ui(_new_session_id(), bump_nav=True)
             st.rerun()
 
 
-def _render_quick_prompts() -> None:
+def _render_quick_prompts() -> bool:
+    """渲染快捷问题；若用户点击则返回 True（已在本轮执行）。"""
     st.markdown(
         """
         <div class="empty-wrap">
             <h3>有什么可以帮您？</h3>
-            <p>查商品、跟物流、办退款，或让数据分析专员跑报表</p>
+            <p>查商品、跟物流、读 data/ 全量 JSON，或让数据分析跑报表</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -430,7 +514,12 @@ def _render_quick_prompts() -> None:
     for i, text in enumerate(QUICK_PROMPTS):
         with cols[i % 2]:
             if st.button(text, key=f"quick_{i}", use_container_width=True):
-                _submit_user_prompt(text)
+                _append_and_persist("user", text)
+                with st.chat_message("user"):
+                    st.markdown(text)
+                _execute_agent_turn(text)
+                return True
+    return False
 
 
 def _handle_approval(approved: bool) -> None:
@@ -472,11 +561,8 @@ def _handle_approval(approved: bool) -> None:
         _append_and_persist("assistant", f"**审批失败**：{exc}")
 
 
-def _process_pending_prompt() -> None:
-    prompt = st.session_state.processing_prompt
-    if not prompt:
-        return
-
+def _execute_agent_turn(prompt: str) -> None:
+    """在同一轮渲染内流式执行 Agent，避免整页双重重跑。"""
     with st.chat_message("assistant"):
         placeholder = st.empty()
         buffer = {"text": ""}
@@ -497,15 +583,11 @@ def _process_pending_prompt() -> None:
             )
         except MaxTurnsExceeded:
             _append_and_persist("assistant", "运行超时：问题较复杂，请拆分后重试。")
-            st.session_state.processing_prompt = None
-            st.rerun()
             return
         except Exception as exc:
             _append_and_persist(
                 "assistant", f"**运行失败**：{type(exc).__name__}: {exc}"
             )
-            st.session_state.processing_prompt = None
-            st.rerun()
             return
 
         if isinstance(result, PendingApprovalRecord):
@@ -520,9 +602,6 @@ def _process_pending_prompt() -> None:
             final = buffer["text"] or text or ""
             if final:
                 _append_and_persist("assistant", final)
-
-    st.session_state.processing_prompt = None
-    st.rerun()
 
 
 def _render_approval_card() -> None:
@@ -552,14 +631,11 @@ def _render_chat() -> None:
         """
         <div class="app-hero">
             <h1>电商智能客服</h1>
-            <p>商品咨询 · 订单物流 · 退款售后 · 数据分析</p>
+            <p>商品咨询 · 订单物流 · 数据文件 · 分析报表</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    if not st.session_state.ui_messages and not st.session_state.processing_prompt:
-        _render_quick_prompts()
 
     for msg in st.session_state.ui_messages:
         with st.chat_message(msg["role"]):
@@ -569,12 +645,20 @@ def _render_chat() -> None:
         _render_approval_card()
         return
 
-    if st.session_state.processing_prompt:
-        _process_pending_prompt()
-        return
+    if not st.session_state.ui_messages:
+        quick_handled = _render_quick_prompts()
+        if quick_handled:
+            if st.session_state.pending_approval:
+                _render_approval_card()
+            return
 
     if prompt := st.chat_input("输入消息，Enter 发送"):
-        _submit_user_prompt(prompt)
+        _append_and_persist("user", prompt)
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        _execute_agent_turn(prompt)
+        if st.session_state.pending_approval:
+            _render_approval_card()
 
 
 def main() -> None:

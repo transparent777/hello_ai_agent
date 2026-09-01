@@ -60,6 +60,7 @@ _ECOMMERCE_HINTS = (
 _FILE_TASK_HINTS = (
     r"文件|文件夹|目录|folder|file|读取|写入|保存|创建文件|列出|整理",
     r"txt|csv|json|markdown|\.md|workspace_user|工作区",
+    r"导出|清单|excel|表格",
 )
 
 _SECRET_IN_OUTPUT = re.compile(
@@ -297,7 +298,7 @@ def validate_refund_request(data: ToolInputGuardrailData) -> ToolGuardrailFuncti
 
 @tool_input_guardrail(name="validate_file_tool_path")
 def validate_file_tool_path(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
-    from file_tools import is_blocked_relative_path
+    from file_tools import is_blocked_relative_path, is_data_virtual_path
 
     args = _parse_tool_args(data)
     tool_name = data.context.tool_name or ""
@@ -306,8 +307,14 @@ def validate_file_tool_path(data: ToolInputGuardrailData) -> ToolGuardrailFuncti
 
     if tool_name in {"read_file", "write_file"} and not rel:
         return ToolGuardrailFunctionOutput.reject_content(
-            message="请提供相对于 workspace_user 的文件路径，例如 notes/todo.txt。",
+            message="请提供文件路径，例如 demo/hello.txt 或 data/products.json。",
             output_info={"check": "missing_file_path"},
+        )
+
+    if tool_name == "write_file" and rel and is_data_virtual_path(rel):
+        return ToolGuardrailFunctionOutput.reject_content(
+            message="data/ 为只读电商数据，不可写入。请使用 workspace_user 下路径。",
+            output_info={"check": "data_readonly"},
         )
 
     if rel:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -60,7 +59,7 @@ def touch_session(db_path: Path, session_id: str, title: str | None = None) -> N
                 INSERT INTO ui_chat_sessions (session_id, title, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (session_id, title or session_id, now, now),
+                (session_id, title or "新对话", now, now),
             )
         else:
             conn.execute(
@@ -110,7 +109,16 @@ def load_messages(db_path: Path, session_id: str) -> list[dict[str, str]]:
     return [{"role": row["role"], "content": row["content"]} for row in rows]
 
 
-def list_sessions(db_path: Path) -> list[dict[str, str]]:
+def count_messages(db_path: Path, session_id: str) -> int:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM ui_chat_messages WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def list_sessions(db_path: Path, *, min_messages: int = 1) -> list[dict[str, str]]:
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -121,19 +129,26 @@ def list_sessions(db_path: Path) -> list[dict[str, str]]:
             ORDER BY updated_at DESC
             """
         ).fetchall()
-    return [dict(row) for row in rows]
+    sessions = [dict(row) for row in rows if int(row["message_count"]) >= min_messages]
+    return sessions
+
+
+def prune_empty_sessions(db_path: Path) -> int:
+    """删除无消息的空会话记录，返回清理数量。"""
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM ui_chat_sessions
+            WHERE session_id NOT IN (
+                SELECT DISTINCT session_id FROM ui_chat_messages
+            )
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
 
 
 def clear_session_messages(db_path: Path, session_id: str) -> None:
-    with _connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM ui_chat_messages WHERE session_id = ?",
-            (session_id,),
-        )
-        conn.commit()
-
-
-def delete_session(db_path: Path, session_id: str) -> None:
     with _connect(db_path) as conn:
         conn.execute(
             "DELETE FROM ui_chat_messages WHERE session_id = ?",
@@ -144,3 +159,7 @@ def delete_session(db_path: Path, session_id: str) -> None:
             (session_id,),
         )
         conn.commit()
+
+
+def delete_session(db_path: Path, session_id: str) -> None:
+    clear_session_messages(db_path, session_id)
