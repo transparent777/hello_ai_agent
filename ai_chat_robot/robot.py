@@ -36,6 +36,7 @@ from agents import (
     SQLiteSession,
     set_tracing_disabled,
 )
+from agents.tracing import flush_traces, trace
 from agents.exceptions import (
     InputGuardrailTripwireTriggered,
     MaxTurnsExceeded,
@@ -83,6 +84,13 @@ from sandbox.runtime import (
     publish_workspace_outputs,
     sandbox_mode_label,
 )
+from mcp_integration.runtime import (
+    build_hosted_mcp_tools,
+    build_local_mcp_servers,
+    collect_mcp_servers_from_agents,
+    run_with_mcp_lifecycle,
+)
+from tracing_setup import TRACING_ENABLED, configure_tracing
 from sandbox.settings import (
     SANDBOX_ALLOW_LOCAL_FALLBACK,
     SANDBOX_HEALTH_CHECK_ON_STARTUP,
@@ -104,7 +112,8 @@ if not api_key:
         "DEEPSEEK_API_KEY=你的DeepSeek密钥"
     )
 
-set_tracing_disabled(True)
+set_tracing_disabled(not TRACING_ENABLED)
+configure_tracing()
 
 # ---------------------------------------------------------------------------
 # Models and providers
@@ -164,7 +173,7 @@ def build_run_config(
     base = RunConfig(
         model_provider=deepseek_provider,
         model=model_name,
-        tracing_disabled=True,
+        tracing_disabled=not TRACING_ENABLED,
         tool_not_found_behavior="return_error_to_model",
     )
 
@@ -259,18 +268,37 @@ def _create_analytics_specialist():
 
 analytics_specialist = _create_analytics_specialist()
 
-product_specialist = Agent(
-    name="product_specialist",
-    handoff_description="处理商品咨询、比价、推荐与库存查询。",
-    instructions=(
-        "你是电商商品顾问。根据用户需求推荐合适商品，说明价格与库存。"
-        "需要查商品时调用 search_products，回答简洁、有购买引导。"
-    ),
-    tools=[search_products],
-    model=flash_model,
-    model_settings=flash_settings,
-    output_guardrails=SPECIALIST_OUTPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
-)
+
+def _create_product_specialist() -> Agent:
+    from mcp_integration.settings import MCP_HOSTED_ENABLED, MCP_LOCAL_ENABLED
+
+    tools: list = []
+    if not MCP_LOCAL_ENABLED:
+        tools.append(search_products)
+    if MCP_HOSTED_ENABLED:
+        tools.extend(build_hosted_mcp_tools())
+    mcp_hint = (
+        "商品数据可通过 MCP 工具 search_products 查询（本地私有 MCP 或托管 MCP）。"
+        if MCP_LOCAL_ENABLED or MCP_HOSTED_ENABLED
+        else "需要查商品时调用 search_products，"
+    )
+    return Agent(
+        name="product_specialist",
+        handoff_description="处理商品咨询、比价、推荐与库存查询。",
+        instructions=(
+            "你是电商商品顾问。根据用户需求推荐合适商品，说明价格与库存。"
+            f"{mcp_hint}"
+            "回答简洁、有购买引导。"
+        ),
+        tools=tools,
+        mcp_servers=build_local_mcp_servers() if MCP_LOCAL_ENABLED else [],
+        model=flash_model,
+        model_settings=flash_settings,
+        output_guardrails=SPECIALIST_OUTPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
+    )
+
+
+product_specialist = _create_product_specialist()
 
 order_specialist = Agent(
     name="order_specialist",
@@ -508,64 +536,75 @@ async def handle_user_turn(
 ) -> tuple[str | None, Any | None]:
     """处理一轮用户输入。返回 (回复文本, run_result)；审批暂停时 result 带 interruptions。"""
     _ = actor
-    try:
-        with track_duration("agent_turn_total_ms"):
-            async def _run_once() -> Any:
-                if run_config.sandbox is not None:
-                    return await run_with_sandbox_slot(
-                        lambda: run_streamed_turn(
-                            agent,
-                            user_input,
-                            session,
-                            run_config,
-                            on_delta=on_delta,
-                        ),
-                        timeout_seconds=SANDBOX_RUN_TIMEOUT_SECONDS,
+    servers = collect_mcp_servers_from_agents(*AGENT_REGISTRY.values())
+
+    async def _execute_turn() -> tuple[str | None, Any | None]:
+        try:
+            with track_duration("agent_turn_total_ms"):
+                async def _run_once() -> Any:
+                    if run_config.sandbox is not None:
+                        return await run_with_sandbox_slot(
+                            lambda: run_streamed_turn(
+                                agent,
+                                user_input,
+                                session,
+                                run_config,
+                                on_delta=on_delta,
+                            ),
+                            timeout_seconds=SANDBOX_RUN_TIMEOUT_SECONDS,
+                        )
+                    return await run_streamed_turn(
+                        agent, user_input, session, run_config, on_delta=on_delta
                     )
-                return await run_streamed_turn(
-                    agent, user_input, session, run_config, on_delta=on_delta
-                )
 
-            _, result = await run_with_retries(_run_once)
+                _, result = await run_with_retries(_run_once)
 
-        if result.interruptions:
-            pending = capture_pending_approval(session.session_id, result)
+            if result.interruptions:
+                pending = capture_pending_approval(session.session_id, result)
+                persist_sandbox_session(session.session_id, result)
+                record_event("agent_turn_interrupted")
+                return None, pending
+
+            published = publish_workspace_outputs()
+            refresh_memory_summary(session.session_id)
             persist_sandbox_session(session.session_id, result)
-            record_event("agent_turn_interrupted")
-            return None, pending
+            record_event(
+                "agent_turn_completed",
+                sandbox=run_config.sandbox is not None,
+                published_files=len(published),
+            )
+            return result.final_output, result
 
-        published = publish_workspace_outputs()
-        refresh_memory_summary(session.session_id)
-        persist_sandbox_session(session.session_id, result)
-        record_event(
-            "agent_turn_completed",
-            sandbox=run_config.sandbox is not None,
-            published_files=len(published),
-        )
-        return result.final_output, result
+        except InputGuardrailTripwireTriggered as exc:
+            record_event("input_guardrail_triggered")
+            message = format_input_guardrail_message(exc)
+            return message, None
+        except OutputGuardrailTripwireTriggered as exc:
+            record_event("output_guardrail_triggered")
+            message = format_output_guardrail_message(exc)
+            return message, None
+        except ToolInputGuardrailTripwireTriggered as exc:
+            record_event("tool_input_guardrail_triggered")
+            return f"**安全拦截**：工具调用未通过执行前审查（{exc.guardrail.get_name()}）。", None
+        except MaxTurnsExceeded:
+            record_event("agent_turn_max_turns_exceeded")
+            print(
+                f"\n[运行时失败] 超过最大轮次限制（max_turns={MAX_TURNS}）。"
+                "请简化问题或提高 AGENT_MAX_TURNS。"
+            )
+        except Exception as exc:
+            record_event("agent_turn_failed", error=type(exc).__name__)
+            print(f"\n[运行时失败] {type(exc).__name__}: {exc}")
 
-    except InputGuardrailTripwireTriggered as exc:
-        record_event("input_guardrail_triggered")
-        message = format_input_guardrail_message(exc)
-        return message, None
-    except OutputGuardrailTripwireTriggered as exc:
-        record_event("output_guardrail_triggered")
-        message = format_output_guardrail_message(exc)
-        return message, None
-    except ToolInputGuardrailTripwireTriggered as exc:
-        record_event("tool_input_guardrail_triggered")
-        return f"**安全拦截**：工具调用未通过执行前审查（{exc.guardrail.get_name()}）。", None
-    except MaxTurnsExceeded:
-        record_event("agent_turn_max_turns_exceeded")
-        print(
-            f"\n[运行时失败] 超过最大轮次限制（max_turns={MAX_TURNS}）。"
-            "请简化问题或提高 AGENT_MAX_TURNS。"
-        )
-    except Exception as exc:
-        record_event("agent_turn_failed", error=type(exc).__name__)
-        print(f"\n[运行时失败] {type(exc).__name__}: {exc}")
+        return None, None
 
-    return None, None
+    with trace(
+        "ecommerce_user_turn",
+        metadata={"session_id": session.session_id, "actor": actor or "user"},
+    ):
+        outcome = await run_with_mcp_lifecycle(servers, _execute_turn)
+    flush_traces()
+    return outcome
 
 
 async def chat_loop() -> None:

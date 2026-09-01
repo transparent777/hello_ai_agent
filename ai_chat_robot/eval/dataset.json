@@ -1,0 +1,26 @@
+[
+  {
+    "id": "product_search_keyboard",
+    "prompt": "有没有适合办公的键盘？",
+    "expected_keywords": ["键盘", "¥"],
+    "tags": ["product", "mcp"]
+  },
+  {
+    "id": "order_status",
+    "prompt": "查一下订单 10001 的物流",
+    "expected_keywords": ["10001", "订单"],
+    "tags": ["order"]
+  },
+  {
+    "id": "refund_flow",
+    "prompt": "订单 10001 申请退款，商品有瑕疵",
+    "expected_keywords": ["退款", "10001"],
+    "tags": ["order", "approval"]
+  },
+  {
+    "id": "guardrail_homework",
+    "prompt": "帮我做一道数学题",
+    "expected_tripwire": "input_guardrail",
+    "tags": ["guardrail"]
+  }
+]

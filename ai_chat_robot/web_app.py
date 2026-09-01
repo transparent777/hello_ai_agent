@@ -24,6 +24,7 @@ from agents import SQLiteSession
 from agents.exceptions import MaxTurnsExceeded
 
 from approval_store import PendingApprovalRecord, has_pending_approval
+from mcp_integration.runtime import mcp_status_summary
 from robot import (
     DEEPSEEK_FLASH,
     DEEPSEEK_PRO,
@@ -48,6 +49,7 @@ from sandbox.runtime import (
 )
 from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP, SANDBOX_PERSIST_SESSION, WEB_APP_API_KEY
 from sandbox.session_store import clear_persisted_session
+from tracing_setup import get_recent_trace_count, tracing_status_summary
 from ui_session_store import (
     append_message,
     clear_session_messages,
@@ -58,10 +60,18 @@ from ui_session_store import (
 )
 
 UI_DB = SESSION_DB
-MODEL_LABELS = {
-    DEEPSEEK_FLASH: "Flash（快 / 省 token，前台默认）",
-    DEEPSEEK_PRO: "Pro（强推理，前台默认）",
+MODEL_SHORT = {
+    DEEPSEEK_FLASH: "Flash · 快速",
+    DEEPSEEK_PRO: "Pro · 深度",
 }
+
+QUICK_PROMPTS = [
+    "有没有适合办公的键盘？",
+    "查订单 10001 物流",
+    "订单 10001 申请退款，商品有瑕疵",
+    "分析一下订单数据",
+    "生成销售报表",
+]
 
 st.set_page_config(
     page_title="电商智能客服",
@@ -73,7 +83,111 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .block-container { padding-top: 1.2rem; max-width: 960px; }
+    :root {
+        --bg: #f4f6fb;
+        --card: #ffffff;
+        --text: #1a1d26;
+        --muted: #6b7280;
+        --accent: #4f46e5;
+        --accent-soft: #eef2ff;
+        --border: #e5e7eb;
+        --user-bubble: #4f46e5;
+        --bot-bubble: #f3f4f6;
+    }
+    .stApp { background: var(--bg); }
+  header[data-testid="stHeader"] { background: transparent; }
+    section[data-testid="stSidebar"] {
+        background: var(--card);
+        border-right: 1px solid var(--border);
+    }
+    section[data-testid="stSidebar"] .block-container { padding-top: 1.5rem; }
+    .main .block-container {
+        max-width: 820px;
+        padding-top: 1.5rem;
+        padding-bottom: 6rem;
+    }
+    .app-hero {
+        margin-bottom: 1rem;
+    }
+    .app-hero h1 {
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: var(--text);
+        margin: 0 0 0.25rem 0;
+        letter-spacing: -0.02em;
+    }
+    .app-hero p {
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin: 0;
+    }
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        background: var(--accent-soft);
+        color: var(--accent);
+        margin-top: 0.5rem;
+    }
+    .status-pill.ok { background: #ecfdf5; color: #059669; }
+    .status-pill.warn { background: #fffbeb; color: #d97706; }
+    .empty-wrap {
+        text-align: center;
+        padding: 2.5rem 1rem 1.5rem;
+        color: var(--muted);
+    }
+    .empty-wrap h3 {
+        color: var(--text);
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+    }
+    div[data-testid="stChatMessage"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 0.35rem 0 !important;
+    }
+    div[data-testid="stChatMessageContent"] {
+        border-radius: 14px !important;
+        padding: 0.85rem 1rem !important;
+        line-height: 1.55 !important;
+    }
+    div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"])
+        div[data-testid="stChatMessageContent"] {
+        background: var(--user-bubble) !important;
+        color: #fff !important;
+    }
+    div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"])
+        div[data-testid="stChatMessageContent"] {
+        background: var(--bot-bubble) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+    }
+    .approval-card {
+        background: var(--card);
+        border: 1px solid #fcd34d;
+        border-radius: 14px;
+        padding: 1rem 1.1rem;
+        margin: 0.75rem 0 1rem;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+    }
+    .approval-card h4 { margin: 0 0 0.35rem; color: #92400e; }
+    .approval-card p { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.88rem; }
+    div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] h3 {
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+    }
+    .stButton > button[kind="primary"] {
+        border-radius: 10px;
+        font-weight: 600;
+    }
+    div[data-testid="stChatInput"] textarea {
+        border-radius: 14px !important;
+        border: 1px solid var(--border) !important;
+    }
+    #MainMenu, footer { visibility: hidden; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -105,21 +219,41 @@ def _sync_run_config() -> None:
         st.session_state.run_config_error = str(exc)
 
 
+def _session_label(s: dict) -> str:
+    title = (s.get("title") or "新对话").strip()
+    if len(title) > 22:
+        title = title[:22] + "…"
+    return f"{title} · {s['message_count']}条"
+
+
+def _system_status() -> tuple[str, str]:
+    """返回 (级别, 一句话状态)。"""
+    if st.session_state.get("run_config_error"):
+        return "warn", "沙箱未就绪"
+    if not analytics_backend_available():
+        return "warn", "数据分析需 Docker"
+    if has_pending_approval(st.session_state.agent_session.session_id):
+        return "warn", "待审批"
+    return "ok", "服务正常"
+
+
 def _ensure_authenticated() -> bool:
     if not WEB_APP_API_KEY:
         return True
     if st.session_state.get("web_authenticated"):
         return True
 
-    st.title("🔐 访问验证")
-    st.caption("此实例已启用 WEB_APP_API_KEY 保护。")
-    entered = st.text_input("访问密钥", type="password", key="web_api_key_input")
-    if st.button("进入", type="primary"):
-        if entered == WEB_APP_API_KEY:
-            st.session_state.web_authenticated = True
-            st.rerun()
-        else:
-            st.error("密钥不正确")
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown("### 🔐 访问验证")
+        st.caption("请输入访问密钥以继续")
+        entered = st.text_input("密钥", type="password", key="web_api_key_input", label_visibility="collapsed", placeholder="访问密钥")
+        if st.button("进入", type="primary", use_container_width=True):
+            if entered == WEB_APP_API_KEY:
+                st.session_state.web_authenticated = True
+                st.rerun()
+            else:
+                st.error("密钥不正确")
     return False
 
 
@@ -128,7 +262,6 @@ def _load_session_into_ui(session_id: str) -> None:
     st.session_state.ui_messages = load_messages(UI_DB, session_id)
     st.session_state.processing_prompt = None
     st.session_state.pending_approval = restore_pending_approval(session_id)
-    # 避免 selectbox 仍记住旧 session_id，把新建/切换的会话又切回去
     st.session_state.pop("session_picker", None)
     _sync_run_config()
 
@@ -141,6 +274,9 @@ def _create_new_session() -> None:
 
 def _init_state() -> None:
     ensure_workspace_synced()
+    from tracing_setup import configure_tracing
+
+    configure_tracing()
     if "web_authenticated" not in st.session_state:
         st.session_state.web_authenticated = False
     if "sandbox_health" not in st.session_state:
@@ -173,113 +309,101 @@ def _append_and_persist(role: str, content: str) -> None:
     )
 
 
-def _render_sidebar() -> None:
-    with st.sidebar:
-        st.header("控制台")
+def _submit_user_prompt(prompt: str) -> None:
+    _append_and_persist("user", prompt)
+    st.session_state.processing_prompt = prompt
+    st.rerun()
 
-        # --- 模型切换（Run 级默认）---
-        st.subheader("模型")
-        selected = st.radio(
-            "前台 / Run 默认模型",
-            options=[DEEPSEEK_FLASH, DEEPSEEK_PRO],
-            index=0 if st.session_state.run_model == DEEPSEEK_FLASH else 1,
-            format_func=lambda m: MODEL_LABELS[m],
-            key="run_model",
-            help=(
-                "影响 customer_service_router（前台分诊）。"
-                "商品专员固定 Flash，订单专员固定 Pro。"
-            ),
-        )
-        if selected != st.session_state.run_config.model:
-            _sync_run_config()
 
-        st.caption("专员模型（Agent 级，不可在此页切换）")
-        st.markdown("- 商品顾问 → Flash")
-        st.markdown("- 订单客服 → Pro")
-        st.markdown("- 数据分析 → Pro + " + sandbox_mode_label())
+def _render_advanced_settings(current_id: str) -> None:
+    from guardrails import GUARDRAILS_ENABLED
+
+    with st.expander("高级设置", expanded=False):
+        st.caption(f"会话 ID：`{current_id}`")
+        st.caption(f"数据分析 · {sandbox_mode_label()}")
         if SANDBOX_PERSIST_SESSION:
-            st.caption("同一会话内多次分析可恢复沙箱工作区与记忆")
-        if not analytics_backend_available():
-            st.warning("数据分析需要 Docker。请启动 Docker Desktop。")
-        if SANDBOX_PERSIST_SESSION:
-            sid = st.session_state.agent_session.session_id
-            mem = "有" if has_memory_summary(sid) else "无"
-            st.caption(f"沙箱持久化：开启 · 跨运行记忆：{mem}")
-        from guardrails import GUARDRAILS_ENABLED
+            mem = "有" if has_memory_summary(current_id) else "无"
+            st.caption(f"沙箱记忆 · {mem}")
+        st.caption(f"护栏 · {'开' if GUARDRAILS_ENABLED else '关'}")
+        st.caption(f"MCP · {mcp_status_summary()}")
+        st.caption(f"Tracing · {tracing_status_summary()}")
+        trace_n = get_recent_trace_count()
+        if trace_n:
+            st.caption(f"Trace 记录 · 约 {trace_n} 条")
 
-        st.caption(f"输入/输出护栏：{'开启' if GUARDRAILS_ENABLED else '关闭'}")
-        if has_pending_approval(st.session_state.agent_session.session_id):
-            st.info("本会话有未完成的审批（已持久化，刷新页面仍可继续）")
         health = st.session_state.get("sandbox_health")
-        if health is not None:
-            status = "✅ 就绪" if health.get("ok") else "⚠️ 异常"
-            st.caption(f"沙箱健康检查：{status}")
-            if health.get("issues"):
-                for issue in health["issues"]:
-                    st.caption(f"- {issue}")
+        if health is not None and not health.get("ok"):
+            for issue in health.get("issues", []):
+                st.caption(f"⚠ {issue}")
+
         if st.session_state.get("run_config_error"):
             st.error(st.session_state.run_config_error)
 
         metrics = get_metrics_summary()
         if metrics["counters"] or metrics["timings"]:
-            with st.expander("运行指标（本会话进程）", expanded=False):
-                st.json(metrics)
+            st.json(metrics, expanded=False)
+
+        data_dir = _script_dir / "data"
+        ok = (data_dir / "products.json").exists() and (data_dir / "orders.json").exists()
+        if not ok:
+            st.info("演示数据未生成：`python scripts/generate_catalog.py`")
+
+
+def _render_sidebar() -> None:
+    current_id = st.session_state.agent_session.session_id
+    level, status_text = _system_status()
+
+    with st.sidebar:
+        if st.button("＋ 新对话", type="primary", use_container_width=True):
+            _create_new_session()
+            st.rerun()
+
+        st.markdown(
+            f'<span class="status-pill {level}">● {status_text}</span>',
+            unsafe_allow_html=True,
+        )
 
         st.divider()
 
-        # --- 历史会话 ---
-        st.subheader("历史会话")
         sessions = list_sessions(UI_DB)
-        current_id = st.session_state.agent_session.session_id
-
         if sessions:
             options = [s["session_id"] for s in sessions]
             if current_id not in options:
                 options = [current_id, *options]
-            labels = {
-                s["session_id"]: (
-                    f"{s.get('title') or s['session_id']} "
-                    f"（{s['message_count']} 条 · {s['updated_at'][:16]}）"
-                )
-                for s in sessions
-            }
+            labels = {s["session_id"]: _session_label(s) for s in sessions}
             if current_id not in labels:
-                labels[current_id] = f"新对话（{current_id}）"
+                labels[current_id] = "新对话 · 0条"
             picked = st.selectbox(
-                "切换会话",
+                "历史对话",
                 options=options,
                 index=options.index(current_id),
                 format_func=lambda sid: labels.get(sid, sid),
                 key="session_picker",
+                label_visibility="collapsed",
             )
             if picked != current_id:
                 _load_session_into_ui(picked)
                 st.rerun()
         else:
-            st.caption("暂无历史，发送第一条消息后会自动保存。")
-
-        st.caption("Agent Session ID")
-        st.code(current_id, language=None)
-
-        data_dir = _script_dir / "data"
-        ok = (data_dir / "products.json").exists() and (
-            data_dir / "orders.json"
-        ).exists()
-        st.write("演示数据", "✅" if ok else "❌")
-        if not ok:
-            st.info("运行：`python scripts/generate_catalog.py`")
+            st.caption("发送消息后自动保存")
 
         st.divider()
-        st.markdown("**示例**")
-        st.markdown(
-            "- 有没有适合办公的键盘？\n"
-            "- 查订单 10001 物流\n"
-            "- 订单 10001 申请退款，商品有瑕疵\n"
-            "- 分析一下订单数据\n"
-            "- 生成销售报表"
-        )
 
-        if st.button("清空当前会话记录", use_container_width=True):
+        selected = st.selectbox(
+            "前台模型",
+            options=[DEEPSEEK_FLASH, DEEPSEEK_PRO],
+            index=0 if st.session_state.run_model == DEEPSEEK_FLASH else 1,
+            format_func=lambda m: MODEL_SHORT[m],
+            key="run_model",
+            label_visibility="visible",
+        )
+        if selected != st.session_state.run_config.model:
+            _sync_run_config()
+
+        _render_advanced_settings(current_id)
+
+        st.divider()
+        if st.button("清空当前对话", use_container_width=True):
             clear_session_messages(UI_DB, current_id)
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
@@ -287,9 +411,22 @@ def _render_sidebar() -> None:
             _sync_run_config()
             st.rerun()
 
-        if st.button("新建会话", use_container_width=True):
-            _create_new_session()
-            st.rerun()
+
+def _render_quick_prompts() -> None:
+    st.markdown(
+        """
+        <div class="empty-wrap">
+            <h3>有什么可以帮您？</h3>
+            <p>查商品、跟物流、办退款，或让数据分析专员跑报表</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(2)
+    for i, text in enumerate(QUICK_PROMPTS):
+        with cols[i % 2]:
+            if st.button(text, key=f"quick_{i}", use_container_width=True):
+                _submit_user_prompt(text)
 
 
 def _handle_approval(approved: bool) -> None:
@@ -316,10 +453,10 @@ def _handle_approval(approved: bool) -> None:
 
         if isinstance(result, PendingApprovalRecord):
             st.session_state.pending_approval = result
-            content = buffer["text"] or "_仍有待审批操作…_"
+            content = buffer["text"] or "仍有待审批操作，请继续确认。"
         elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
-            content = buffer["text"] or "_仍有待审批操作…_"
+            content = buffer["text"] or "仍有待审批操作，请继续确认。"
         else:
             content = buffer["text"] or text or (
                 "已拒绝该操作。" if not approved else ""
@@ -328,7 +465,7 @@ def _handle_approval(approved: bool) -> None:
         if content:
             _append_and_persist("assistant", content)
     except Exception as exc:
-        _append_and_persist("assistant", f"**审批恢复失败**：{exc}")
+        _append_and_persist("assistant", f"**审批失败**：{exc}")
 
 
 def _process_pending_prompt() -> None:
@@ -355,9 +492,7 @@ def _process_pending_prompt() -> None:
                 )
             )
         except MaxTurnsExceeded:
-            _append_and_persist(
-                "assistant", "**运行失败**：超过最大轮次，请简化问题。"
-            )
+            _append_and_persist("assistant", "运行超时：问题较复杂，请拆分后重试。")
             st.session_state.processing_prompt = None
             st.rerun()
             return
@@ -371,11 +506,11 @@ def _process_pending_prompt() -> None:
 
         if isinstance(result, PendingApprovalRecord):
             st.session_state.pending_approval = result
-            note = buffer["text"] or "_已触发敏感操作，请在下方审批…_"
+            note = buffer["text"] or "已触发敏感操作，请在下方确认。"
             _append_and_persist("assistant", note)
         elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
-            note = buffer["text"] or "_已触发敏感操作，请在下方审批…_"
+            note = buffer["text"] or "已触发敏感操作，请在下方确认。"
             _append_and_persist("assistant", note)
         else:
             final = buffer["text"] or text or ""
@@ -386,45 +521,56 @@ def _process_pending_prompt() -> None:
     st.rerun()
 
 
+def _render_approval_card() -> None:
+    items = describe_interruptions(st.session_state.pending_approval)
+    items_html = "".join(f"<li>{item}</li>" for item in items)
+    st.markdown(
+        f"""
+        <div class="approval-card">
+            <h4>需要您的确认</h4>
+            <p>以下操作涉及敏感变更，批准后将从中断处继续执行（非新对话）。</p>
+            <ul style="margin:0;padding-left:1.1rem;color:#374151;font-size:0.9rem;">{items_html}</ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2, _ = st.columns([1, 1, 2])
+    if c1.button("批准", type="primary", use_container_width=True, key="approve"):
+        _handle_approval(True)
+        st.rerun()
+    if c2.button("拒绝", use_container_width=True, key="reject"):
+        _handle_approval(False)
+        st.rerun()
+
+
 def _render_chat() -> None:
-    st.title("🛒 电商智能客服")
-    run_model = st.session_state.run_config.model
-    st.caption(
-        f"流式输出 · Session 记忆 · 退款审批 · 前台模型：`{run_model}` · "
-        f"数据分析：{sandbox_mode_label()}"
+    st.markdown(
+        """
+        <div class="app-hero">
+            <h1>电商智能客服</h1>
+            <p>商品咨询 · 订单物流 · 退款售后 · 数据分析</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    # 先渲染全部历史（含用户 + 客服）
+    if not st.session_state.ui_messages and not st.session_state.processing_prompt:
+        _render_quick_prompts()
+
     for msg in st.session_state.ui_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     if st.session_state.pending_approval:
-        st.warning("⚠️ 有待审批的敏感操作（暂停的任务，不是新对话）")
-        st.caption(
-            "审批记录的是「批准执行工具」。决策后从同一 RunState 继续；"
-            "状态已持久化，刷新页面仍可审批。"
-        )
-        for desc in describe_interruptions(st.session_state.pending_approval):
-            st.write(f"- {desc}")
-        c1, c2 = st.columns(2)
-        if c1.button("✅ 批准", type="primary", key="approve"):
-            _handle_approval(True)
-            st.rerun()
-        if c2.button("❌ 拒绝", key="reject"):
-            _handle_approval(False)
-            st.rerun()
+        _render_approval_card()
         return
 
-    # 第二阶段：处理上一轮提交的用户输入（保证用户消息已写入并 rerun 后再调模型）
     if st.session_state.processing_prompt:
         _process_pending_prompt()
         return
 
-    if prompt := st.chat_input("查订单、搜商品、申请退款…"):
-        _append_and_persist("user", prompt)
-        st.session_state.processing_prompt = prompt
-        st.rerun()
+    if prompt := st.chat_input("输入消息，Enter 发送"):
+        _submit_user_prompt(prompt)
 
 
 def main() -> None:

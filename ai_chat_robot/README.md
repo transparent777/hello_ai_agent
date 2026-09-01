@@ -154,6 +154,20 @@ customer_service_router（前台，Run 默认 Flash）
 
 ---
 
+## MCP 与 Tracing / Eval
+
+| 能力 | 类型 | 配置 | 说明 |
+|------|------|------|------|
+| **本地 MCP** | 私有 stdio | `MCP_LOCAL_ENABLED=true`（默认） | `mcp_servers/ecommerce_stdio_server.py`，工具白名单 + `get_order_status` 需 MCP 层审批 |
+| **托管 MCP** | 远程公开 | `MCP_HOSTED_ENABLED=true` + `MCP_HOSTED_SERVER_URL` | `HostedMCPTool`，需 Responses 兼容提供商（DeepSeek 默认关闭） |
+| **Tracing 调试** | JSONL | `TRACING_ENABLED=true` | `logs/agent_traces.jsonl`，追踪单次工作流 span |
+| **Eval 样本** | JSONL | `TRACING_EVAL_ENABLED=true` | `logs/eval_samples.jsonl`，高信号 trace 自动采集 |
+| **评估运行** | 脚本 | `python scripts/run_agent_eval.py` | 读取 `eval/dataset.json` 批量跑用例 |
+
+本地 MCP 与原生 `search_products` 二选一（启用本地 MCP 时商品专员走 MCP 工具）。
+
+---
+
 ## 常见问题
 
 ### `Tool get_order_status not found in agent customer_service_router`

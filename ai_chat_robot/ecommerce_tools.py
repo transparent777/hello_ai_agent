@@ -39,9 +39,8 @@ def _find_order(order_id: str) -> dict | None:
     return None
 
 
-@function_tool
-def search_products(keyword: str) -> str:
-    """按关键词搜索商品目录，返回名称、价格与库存。"""
+def search_products_impl(keyword: str) -> str:
+    """商品搜索实现（供 function_tool 与 MCP 共用）。"""
     keyword_lower = keyword.lower()
     matches = [
         item
@@ -62,9 +61,8 @@ def search_products(keyword: str) -> str:
     return "搜索结果：\n" + "\n".join(lines)
 
 
-@function_tool(tool_input_guardrails=[validate_order_id])
-def get_order_status(order_id: str) -> str:
-    """查询订单状态、物流与预计送达时间。"""
+def get_order_status_impl(order_id: str) -> str:
+    """订单查询实现（供 function_tool 与 MCP 共用）。"""
     order = _find_order(order_id)
     if not order:
         return f"未找到订单 {order_id}，请核对订单号。"
@@ -82,6 +80,18 @@ def get_order_status(order_id: str) -> str:
         f"订单金额：¥{order['total']}\n"
         f"商品明细：\n" + "\n".join(item_lines)
     )
+
+
+@function_tool
+def search_products(keyword: str) -> str:
+    """按关键词搜索商品目录，返回名称、价格与库存。"""
+    return search_products_impl(keyword)
+
+
+@function_tool(tool_input_guardrails=[validate_order_id])
+def get_order_status(order_id: str) -> str:
+    """查询订单状态、物流与预计送达时间。"""
+    return get_order_status_impl(order_id)
 
 
 @function_tool(

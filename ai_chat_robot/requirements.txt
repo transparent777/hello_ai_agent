@@ -4,5 +4,6 @@ streamlit>=1.32.0
 python-dotenv>=1.0.0
 openai-agents[docker]>=0.2.0
 openai>=1.0.0
+mcp>=2.0.0
 requests>=2.31.0
 docker>=7.0.0
