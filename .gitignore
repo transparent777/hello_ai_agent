@@ -1,11 +1,21 @@
 .env
 
+# 学习 / 实验目录（不入库）
+Building Systems/
+openai_start/
+prompt_develop/
+learn.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# 运行时与本地数据
+debug.log
 ai_chat_robot/logs/
 ai_chat_robot/reports/
 ai_chat_robot/sandbox/persist/
-.prompt_develop/__pycache__
-.debug.log
-.Building Systems
-.openai_start
-.prompt_develop
-
+ai_chat_robot/sessions.db
+ai_chat_robot/sessions.db-*
