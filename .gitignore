@@ -19,3 +19,9 @@ ai_chat_robot/reports/
 ai_chat_robot/sandbox/persist/
 ai_chat_robot/sessions.db
 ai_chat_robot/sessions.db-*
+
+# 文件 Agent 用户工作区（保留 README 与 demo）
+ai_chat_robot/workspace_user/*
+!ai_chat_robot/workspace_user/README.md
+!ai_chat_robot/workspace_user/demo/
+!ai_chat_robot/workspace_user/demo/**

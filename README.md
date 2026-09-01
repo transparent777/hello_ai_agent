@@ -65,6 +65,7 @@ streamlit run web_app.py
 | 查一下订单 10001 物流 | 转订单专员，查 JSON 订单 |
 | 订单 10001 申请退款，商品有瑕疵 | 触发**人工审批**，点批准/拒绝后继续 |
 | 分析一下订单数据 | 转数据分析专员，Docker 沙箱跑脚本 |
+| 列出工作区文件，读取 demo/hello.txt | 转文件专员，读写 `workspace_user/` |
 | 帮我做数学题 | 被**输入护栏**拦截 |
 
 侧边栏：**＋ 新对话**、切换历史、选 Flash/Pro 模型。运维细节在「高级设置」里。
@@ -92,6 +93,8 @@ ai agent/
     ├── web_app.py         ← Streamlit 界面
     ├── robot.py           ← Agent 定义 + 运行逻辑
     ├── ecommerce_tools.py ← 商品/订单/退款工具
+    ├── file_tools.py      ← 工作区文件 list/read/write
+    ├── workspace_user/    ← 文件 Agent 可操作目录
     ├── guardrails.py      ← 安全护栏
     ├── sandbox/           ← Docker 沙箱与分析脚本
     └── scripts/           ← 数据生成、测试脚本
@@ -126,8 +129,16 @@ python sandbox/scripts/analyze_orders.py
 customer_service_router（前台，只分流不查单）
     ├→ product_specialist      商品 · Flash
     ├→ order_specialist        订单 · Pro · 退款要审批
-    └→ analytics_specialist    分析 · Pro · Docker 沙箱
+    ├→ analytics_specialist    分析 · Pro · Docker 沙箱
+    └→ file_specialist         文件 · Pro · workspace_user（写入要审批）
 ```
+
+### 文件 Agent（方案 B）
+
+- 工作区默认：`ai_chat_robot/workspace_user/`（可用 `FILE_AGENT_WORKSPACE` 改路径）
+- 工具：`list_files`、`read_file`、`write_file`（写入需人工审批）
+- 可把文件放进 `workspace_user/`，在聊天里让 Agent 读取或生成内容
+- 关闭：`FILE_AGENT_ENABLED=false`
 
 ---
 
@@ -138,7 +149,7 @@ customer_service_router（前台，只分流不查单）
 | 页面报错 / 改了代码没变化 | 停掉旧进程，重新 `streamlit run web_app.py` |
 | 数据分析没反应 | 启动 Docker Desktop，`docker version` 无报错 |
 | 找不到商品/订单 | `python scripts/generate_catalog.py` |
-| 没有审批按钮 | 要说「申请退款」类话术，且走订单专员 |
+| 没有审批按钮 | 要说「申请退款」或「写入文件」类话术 |
 | 登录页要密钥 | 填 `.env` 里的 `WEB_APP_API_KEY` |
 
 更多环境变量见 `ai_chat_robot/.env.sandbox.example`。

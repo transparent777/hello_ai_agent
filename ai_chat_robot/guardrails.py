@@ -57,6 +57,11 @@ _ECOMMERCE_HINTS = (
     r"客服|购买|售后|运单|tracking|order|product|refund",
 )
 
+_FILE_TASK_HINTS = (
+    r"文件|文件夹|目录|folder|file|读取|写入|保存|创建文件|列出|整理",
+    r"txt|csv|json|markdown|\.md|workspace_user|工作区",
+)
+
 _SECRET_IN_OUTPUT = re.compile(
     r"(sk-[a-zA-Z0-9]{10,}|DEEPSEEK_API_KEY|OPENAI_API_KEY|WEB_APP_API_KEY|"
     r"api[_-]?key\s*[:=]\s*\S+)",
@@ -95,6 +100,14 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> str | None:
 
 def _has_ecommerce_hint(text: str) -> bool:
     return _matches_any(text, _ECOMMERCE_HINTS) is not None
+
+
+def _has_file_task_hint(text: str) -> bool:
+    return _matches_any(text, _FILE_TASK_HINTS) is not None
+
+
+def _has_router_allowed_topic(text: str) -> bool:
+    return _has_ecommerce_hint(text) or _has_file_task_hint(text)
 
 
 def _tripwire(
@@ -173,14 +186,17 @@ def block_off_topic(
     if not text:
         return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
 
-    if _has_ecommerce_hint(text):
+    if _has_router_allowed_topic(text):
         return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
 
     hit = _matches_any(text, _OFF_TOPIC_PATTERNS)
     if hit:
         return _tripwire(
             reason=f"off_topic:{hit}",
-            user_message="我是电商客服助手，仅处理商品咨询、订单物流、退款与数据分析。请换个相关问题试试。",
+            user_message=(
+                "我是电商客服助手，可处理商品咨询、订单物流、退款、数据分析，"
+                "以及 workspace_user 工作区内的文件读写。请换个相关问题试试。"
+            ),
             guardrail_name="block_off_topic",
         )
     return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
@@ -277,6 +293,38 @@ def validate_refund_request(data: ToolInputGuardrailData) -> ToolGuardrailFuncti
     return ToolGuardrailFunctionOutput.allow(
         output_info={"check": "refund_request_ok", "order_id": order_id},
     )
+
+
+@tool_input_guardrail(name="validate_file_tool_path")
+def validate_file_tool_path(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
+    from file_tools import is_blocked_relative_path
+
+    args = _parse_tool_args(data)
+    tool_name = data.context.tool_name or ""
+    path_key = "relative_dir" if tool_name == "list_files" else "relative_path"
+    rel = str(args.get(path_key, "")).strip()
+
+    if tool_name in {"read_file", "write_file"} and not rel:
+        return ToolGuardrailFunctionOutput.reject_content(
+            message="请提供相对于 workspace_user 的文件路径，例如 notes/todo.txt。",
+            output_info={"check": "missing_file_path"},
+        )
+
+    if rel:
+        blocked = is_blocked_relative_path(rel)
+        if blocked:
+            log_audit_event(
+                "tool_guardrail_rejected",
+                status="rejected",
+                detail=f"blocked_file_path:{blocked}",
+                extra={"tool": tool_name, "path": rel},
+            )
+            return ToolGuardrailFunctionOutput.reject_content(
+                message="该路径不允许访问（越界或命中安全黑名单）。",
+                output_info={"check": "blocked_file_path", "reason": blocked},
+            )
+
+    return ToolGuardrailFunctionOutput.allow(output_info={"check": "file_path_ok"})
 
 
 def format_input_guardrail_message(exc: Exception) -> str:

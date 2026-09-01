@@ -71,6 +71,7 @@ QUICK_PROMPTS = [
     "订单 10001 申请退款，商品有瑕疵",
     "分析一下订单数据",
     "生成销售报表",
+    "列出工作区文件，并读取 demo/hello.txt",
 ]
 
 st.set_page_config(
@@ -316,10 +317,13 @@ def _submit_user_prompt(prompt: str) -> None:
 
 
 def _render_advanced_settings(current_id: str) -> None:
+    from file_agent_settings import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
     from guardrails import GUARDRAILS_ENABLED
 
     with st.expander("高级设置", expanded=False):
         st.caption(f"会话 ID：`{current_id}`")
+        if FILE_AGENT_ENABLED:
+            st.caption(f"文件工作区 · `{FILE_AGENT_WORKSPACE}`")
         st.caption(f"数据分析 · {sandbox_mode_label()}")
         if SANDBOX_PERSIST_SESSION:
             mem = "有" if has_memory_summary(current_id) else "无"
