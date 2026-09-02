@@ -1,6 +1,6 @@
 .env
 
-# 学习 / 实验目录（不入库）
+# 本地学习 / 实验（与主项目无关，不入库）
 Building Systems/
 openai_start/
 prompt_develop/

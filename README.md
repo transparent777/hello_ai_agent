@@ -128,7 +128,18 @@ ai agent/
     └── tests/
 ```
 
-以下目录为**本地学习实验**，已在 `.gitignore` 中，不会提交：`openai_start/`、`prompt_develop/`、`Building Systems/`、`learn.md`。
+### 仓库里有什么、没有什么
+
+| 路径 | 是否入库 | 说明 |
+|------|----------|------|
+| `ai_chat_robot/` | ✅ | 电商客服 Agent 主项目，克隆后只看这里即可 |
+| `README.md`、`CLAUDE.md` | ✅ | 上手与协作文档 |
+| `openai_start/` | ❌ | 本地 OpenAI SDK 练习，已 `.gitignore` |
+| `prompt_develop/` | ❌ | 本地 Prompt 实验，已 `.gitignore` |
+| `Building Systems/` | ❌ | 本地系统工程练习，已 `.gitignore` |
+| `learn.md` | ❌ | 个人学习笔记，已 `.gitignore` |
+
+以上带 ❌ 的目录可以留在本机自用，**不会**被 `git add` / `git push` 带上。若你之前提交过它们，需要从 Git 索引移除一次（见下方「从 Git 取消跟踪」）。
 
 ---
 
@@ -181,6 +192,16 @@ customer_service_router（前台，只分流不查单）
 | 登录页要密钥 | 填 `.env` 里的 `WEB_APP_API_KEY` |
 
 更多环境变量见 `ai_chat_robot/.env.sandbox.example`。
+
+### 从 Git 取消跟踪（仅本机曾提交过学习目录时）
+
+若 `git status` 仍显示 `openai_start/`、`prompt_develop/`、`Building Systems/` 有变更，在项目根执行：
+
+```bash
+git rm -r --cached "Building Systems" openai_start prompt_develop learn.md
+```
+
+然后正常提交即可；本地文件夹不会被删除。
 
 ---
 
