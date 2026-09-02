@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from approval_store import (
+import sys
+from pathlib import Path
+
+_APP_DIR = Path(__file__).resolve().parent.parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
+
+from services.approval_store import (
     PendingApprovalRecord,
     clear_pending_approval,
     load_pending_approval,
@@ -12,10 +19,10 @@ from approval_store import (
 
 def test_approval_pending_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "approval_store.SANDBOX_PERSIST_ROOT",
+        "services.approval_store.SANDBOX_PERSIST_ROOT",
         tmp_path,
     )
-    monkeypatch.setattr("approval_store.APPROVAL_PERSIST_ENABLED", True)
+    monkeypatch.setattr("services.approval_store.APPROVAL_PERSIST_ENABLED", True)
 
     record = PendingApprovalRecord(
         session_id="web_test01",

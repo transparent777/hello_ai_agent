@@ -7,8 +7,9 @@ import random
 from datetime import date, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
+from config.paths import DATA_DIR
+
+ROOT = DATA_DIR.parent
 
 PRODUCT_TEMPLATES = [
     ("无线蓝牙耳机 Pro", "数码", 299, "降噪长续航，适合通勤"),

@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from config.paths import LOGS_DIR, PACKAGE_ROOT
+
 SANDBOX_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SANDBOX_DIR.parent
-LOGS_DIR = PROJECT_ROOT / "logs"
+PROJECT_ROOT = PACKAGE_ROOT
 
 
 def _env_bool(name: str, default: bool) -> bool:

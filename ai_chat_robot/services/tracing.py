@@ -15,8 +15,7 @@ from agents.tracing.processors import BatchTraceProcessor
 from agents.tracing.spans import Span
 from agents.tracing.traces import Trace
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-LOGS_DIR = PROJECT_ROOT / "logs"
+from config.paths import LOGS_DIR
 DEFAULT_TRACE_LOG = LOGS_DIR / "agent_traces.jsonl"
 DEFAULT_EVAL_SAMPLES = LOGS_DIR / "eval_samples.jsonl"
 

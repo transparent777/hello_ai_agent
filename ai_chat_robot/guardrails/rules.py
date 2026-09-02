@@ -298,7 +298,7 @@ def validate_refund_request(data: ToolInputGuardrailData) -> ToolGuardrailFuncti
 
 @tool_input_guardrail(name="validate_file_tool_path")
 def validate_file_tool_path(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
-    from file_tools import is_blocked_relative_path, is_data_virtual_path
+    from tools.file import is_blocked_relative_path, is_data_virtual_path
 
     args = _parse_tool_args(data)
     tool_name = data.context.tool_name or ""

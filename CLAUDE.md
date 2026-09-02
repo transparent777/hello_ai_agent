@@ -41,7 +41,7 @@ streamlit run web_app.py
 | `analytics_specialist` | Pro | **SandboxAgent**（Docker） | 分析/定价/报表 |
 | `file_specialist` | Pro | `list_files` / `read_file` / `write_file` | 宿主机 `workspace_user/` |
 
-定义位置：`ai_chat_robot/robot.py`（`_create_product_specialist`、`_create_analytics_specialist`、`_create_file_specialist` 等）。
+定义位置：`ai_chat_robot/specialists/`（各专员）+ `orchestrator/runner.py`（运行循环）。
 
 ```
 用户 → router → handoff → specialist → tools / sandbox → 回复
@@ -53,22 +53,22 @@ streamlit run web_app.py
 
 | 路径 | 职责 |
 |------|------|
-| `robot.py` | Agent 定义、`handle_user_turn`、审批恢复、终端 `chat_loop` |
-| `web_app.py` | Streamlit UI、会话切换、审批按钮 |
-| `ecommerce_tools.py` | `@function_tool`：搜商品、查单、退款（`needs_approval=True`） |
-| `file_tools.py` | 宿主机工作区文件工具；`write_file` 需审批 |
-| `file_agent_settings.py` | `FILE_AGENT_*` 环境变量与工作区路径 |
-| `guardrails.py` | 输入/输出/工具护栏；挂到 router 与 tools |
-| `approval_store.py` | 审批 `RunState` → `approval_pending.json` 持久化 |
-| `ui_session_store.py` | Web 聊天历史（与 Agent `SQLiteSession` 分离） |
-| `tracing_setup.py` | Trace → `logs/agent_traces.jsonl`（调试用） |
+| `web_app.py` / `robot.py` | Streamlit / 终端入口 |
+| `specialists/` | 各 Agent 定义（router、product、order、analytics、file） |
+| `orchestrator/runner.py` | `handle_user_turn`、流式、审批恢复 |
+| `config/llm.py` | DeepSeek 模型、`build_run_config` |
+| `config/paths.py` | `DATA_DIR`、`SESSION_DB` 等路径常量 |
+| `tools/ecommerce.py` | `@function_tool`：搜商品、查单、退款 |
+| `tools/file.py` | 宿主机工作区文件工具；`write_file` 需审批 |
+| `config/file_agent.py` | `FILE_AGENT_*` 环境变量与工作区路径 |
+| `guardrails/rules.py` | 输入/输出/工具护栏 |
+| `services/approval_store.py` | 审批 `RunState` 持久化 |
+| `services/ui_session_store.py` | Web 聊天历史 |
+| `services/tracing.py` | Trace → `logs/agent_traces.jsonl` |
 | `mcp_integration/` | 本地 stdio MCP 构建与生命周期 |
 | `mcp_servers/ecommerce_stdio_server.py` | MCP 版商品/订单查询 |
-| `sandbox/config.py` | Docker Manifest、capabilities、resume |
-| `sandbox/runtime.py` | Docker 检测、产物发布到 `reports/` |
-| `sandbox/security.py` | Shell 白名单（仅 `python` + `scripts/`） |
-| `sandbox/session_store.py` | 沙箱 `sandbox_resume.json` |
-| `sandbox/memory_sync.py` | `output/` → `memory_summary.md` |
+| `data/` | 演示商品与订单 JSON |
+| `sandbox/` | Docker 沙箱、同步脚本、分析脚本 |
 
 ---
 
@@ -79,22 +79,22 @@ streamlit run web_app.py
 3. **失败 vs 暂停**：`MaxTurnsExceeded` = 失败；`interruptions` = 预期暂停（如退款）。
 
 Web 审批：`web_app.py` → `apply_approval_decision()`。  
-持久化：`approval_store.py`（刷新页面可继续批）。
+持久化：`services/approval_store.py`（刷新页面可继续批）。
 
 ---
 
 ## 子系统速查
 
-### 护栏（`guardrails.py`）
+### 护栏（`guardrails/`）
 
 - **输入**：挂在 `customer_service_router`，阻塞式（注入/离题/外泄）
 - **输出**：商品/订单专员
-- **工具**：`validate_order_id`、`validate_refund_request` 在 `ecommerce_tools.py`
+- **工具**：`validate_order_id`、`validate_refund_request` 在 `tools/ecommerce.py`
 - 开关：`GUARDRAILS_ENABLED`
 
 ### 文件 Agent（宿主机，方案 B）
 
-- 工作区：`FILE_AGENT_WORKSPACE`（默认 `workspace_user/`），路径校验在 `file_tools.resolve_safe_path`
+- 路径校验在 `tools/file.py` 的 `resolve_safe_path`
 - 工具护栏：`validate_file_tool_path`（防 `..`、黑名单文件名）
 - 写入：`write_file(needs_approval=True)`，走与退款相同的审批恢复流程
 - 开关：`FILE_AGENT_ENABLED`；关闭后 router 不挂 `file_specialist`
@@ -137,7 +137,7 @@ TRACING_ENABLED=true
 
 完整列表：`ai_chat_robot/.env.sandbox.example`。
 
-`robot.py` 与 `web_app.py` 会 `load_dotenv` 项目根和 `ai_chat_robot/` 下的 `.env`。
+`config/settings.py` 与 `config/llm.py` 会 `load_dotenv` 项目根和 `ai_chat_robot/` 下的 `.env`。
 
 ---
 
@@ -175,13 +175,13 @@ python scripts/run_agent_eval.py
 
 | 需求 | 改哪里 |
 |------|--------|
-| 新增业务工具 | `ecommerce_tools.py` + 挂到对应 `Agent(tools=...)` |
-| 扩展文件能力 | `file_tools.py` + `file_specialist`；注意路径沙箱 |
-| 新增专员 | `robot.py` 新建 `Agent`，加入 `customer_service_router.handoffs` |
+| 新增业务工具 | `tools/ecommerce.py` + 挂到对应 `Agent(tools=...)` |
+| 扩展文件能力 | `tools/file.py` + `specialists/file.py`；注意路径沙箱 |
+| 新增专员 | `specialists/` 新建 Agent，加入 `router.py` 的 handoffs |
 | 新分析脚本 | `sandbox/scripts/` + `sync_workspace.py` + `repo/task.md` |
-| 收紧安全 | `guardrails.py` 或 `sandbox/security.py` |
+| 收紧安全 | `guardrails/rules.py` 或 `sandbox/security.py` |
 | 新审批操作 | `@function_tool(needs_approval=True)` + Web 已有审批流 |
-| 调模型 | `robot.py` 里 `DEEPSEEK_FLASH` / `DEEPSEEK_PRO` 或 Web 侧边栏 Run 级模型 |
+| 调模型 | `config/llm.py` 里 `DEEPSEEK_FLASH` / `DEEPSEEK_PRO` 或 Web 侧边栏 Run 级模型 |
 
 ---
 

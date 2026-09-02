@@ -8,15 +8,15 @@ from pathlib import Path
 
 from agents import function_tool
 
-from file_agent_settings import (
+from config.file_agent import (
     DATA_READ_ROOT,
+    FILE_AGENT_BLOCKED_NAME_PATTERNS,
     FILE_AGENT_MAX_LIST_ENTRIES,
     FILE_AGENT_MAX_READ_BYTES,
     FILE_AGENT_MAX_WRITE_BYTES,
     FILE_AGENT_PREVIEW_MAX_CHARS,
     FILE_AGENT_PREVIEW_MAX_LINES,
     FILE_AGENT_WORKSPACE,
-    FILE_AGENT_BLOCKED_NAME_PATTERNS,
 )
 from guardrails import validate_file_tool_path
 from sandbox.audit import log_audit_event

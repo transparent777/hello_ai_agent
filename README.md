@@ -90,14 +90,42 @@ ai agent/
 ├── CLAUDE.md              ← 给 AI / 开发者看的项目地图
 ├── .env                   ← 密钥（自行创建，不入库）
 └── ai_chat_robot/         ← ★ 主代码
-    ├── web_app.py         ← Streamlit 界面
-    ├── robot.py           ← Agent 定义 + 运行逻辑
-    ├── ecommerce_tools.py ← 商品/订单/退款工具
-    ├── file_tools.py      ← 工作区文件 list/read/write
+    ├── web_app.py         ← Streamlit 界面入口
+    ├── robot.py           ← 终端模式入口
+    │
+    ├── config/            ← 配置与路径
+    │   ├── paths.py       ← 数据目录、日志、会话库等路径
+    │   ├── settings.py    ← 环境变量
+    │   ├── llm.py         ← DeepSeek 模型与 RunConfig
+    │   └── file_agent.py  ← 文件 Agent 工作区配置
+    │
+    ├── specialists/       ← 各业务 Agent 定义（handoff 专员）
+    │   ├── router.py      ← 客服前台分流
+    │   ├── product.py     ← 商品咨询
+    │   ├── order.py       ← 订单/退款
+    │   ├── analytics.py   ← 数据分析（沙箱）
+    │   └── file.py        ← 文件读写
+    │
+    ├── orchestrator/      ← 运行编排（流式、审批恢复、MCP）
+    │   └── runner.py
+    │
+    ├── tools/             ← function_tool 业务工具
+    │   ├── ecommerce.py   ← 搜商品、查单、退款
+    │   └── file.py        ← 工作区文件操作
+    │
+    ├── services/          ← 持久化与可观测
+    │   ├── approval_store.py
+    │   ├── ui_session_store.py
+    │   └── tracing.py
+    │
+    ├── guardrails/        ← 输入/输出/工具护栏
+    ├── data/              ← 演示商品与订单 JSON
     ├── workspace_user/    ← 文件 Agent 可操作目录
-    ├── guardrails.py      ← 安全护栏
+    ├── mcp_integration/   ← MCP 生命周期
+    ├── mcp_servers/       ← 本地 stdio MCP
     ├── sandbox/           ← Docker 沙箱与分析脚本
-    └── scripts/           ← 数据生成、测试脚本
+    ├── scripts/           ← 数据生成、E2E、评估
+    └── tests/
 ```
 
 以下目录为**本地学习实验**，已在 `.gitignore` 中，不会提交：`openai_start/`、`prompt_develop/`、`Building Systems/`、`learn.md`。

@@ -15,8 +15,8 @@ from agents import Agent, RunContextWrapper
 from agents.tool_context import ToolContext
 from agents.tool_guardrails import ToolInputGuardrailData
 
-import file_tools
-from file_tools import (
+import tools.file as file_tools
+from tools.file import (
     ensure_workspace,
     export_products_csv_impl,
     list_files_impl,
@@ -114,7 +114,7 @@ def test_validate_file_tool_path_rejects_traversal():
 
 
 def test_read_data_products_json():
-    from file_agent_settings import DATA_READ_ROOT
+    from config.file_agent import DATA_READ_ROOT
 
     if not (DATA_READ_ROOT / "products.json").exists():
         return
@@ -124,7 +124,7 @@ def test_read_data_products_json():
 
 
 def test_export_products_csv_has_bom():
-    from file_agent_settings import DATA_READ_ROOT
+    from config.file_agent import DATA_READ_ROOT
 
     if not (DATA_READ_ROOT / "products.json").exists():
         return

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv(_ROOT / ".env")
 load_dotenv(_ROOT.parent / ".env")
 
-from ecommerce_tools import get_order_status_impl, search_products_impl
+from tools.ecommerce import get_order_status_impl, search_products_impl
 from mcp.server.mcpserver import MCPServer
 
 server = MCPServer("ecommerce-local-mcp")

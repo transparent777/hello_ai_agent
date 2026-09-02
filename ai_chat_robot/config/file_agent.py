@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+from config.paths import DATA_DIR, PACKAGE_ROOT, WORKSPACE_USER_DIR
 
-_DEFAULT_WORKSPACE = PROJECT_ROOT / "workspace_user"
+_DEFAULT_WORKSPACE = WORKSPACE_USER_DIR
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -39,7 +39,7 @@ FILE_AGENT_PREVIEW_MAX_LINES = _env_int("FILE_AGENT_PREVIEW_MAX_LINES", 80)
 FILE_AGENT_PREVIEW_MAX_CHARS = _env_int("FILE_AGENT_PREVIEW_MAX_CHARS", 12000)
 
 # 电商演示数据（只读）；Agent 用 data/ 前缀访问，例如 data/products.json
-DATA_READ_ROOT = (PROJECT_ROOT / "data").resolve()
+DATA_READ_ROOT = DATA_DIR.resolve()
 
 FILE_AGENT_BLOCKED_NAME_PATTERNS = (
     ".env",

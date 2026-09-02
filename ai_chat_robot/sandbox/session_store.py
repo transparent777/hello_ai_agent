@@ -47,7 +47,7 @@ def save_sandbox_resume_payload(session_id: str, payload: dict[str, Any]) -> Non
 
 
 def clear_persisted_session(session_id: str) -> None:
-    from approval_store import clear_pending_approval
+    from services.approval_store import clear_pending_approval
 
     clear_pending_approval(session_id)
     session_dir = _session_dir(session_id)

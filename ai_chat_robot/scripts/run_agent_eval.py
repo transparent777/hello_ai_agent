@@ -15,8 +15,9 @@ if str(_APP_DIR) not in sys.path:
 from agents import SQLiteSession
 from agents.tracing import flush_traces
 
-from robot import SESSION_DB, build_run_config, customer_service_router, handle_user_turn
-from tracing_setup import TRACING_EVAL_SAMPLES_PATH, configure_tracing
+from orchestrator import SESSION_DB, build_run_config, handle_user_turn
+from services.tracing import TRACING_EVAL_SAMPLES_PATH, configure_tracing
+from specialists import customer_service_router
 
 DATASET = _APP_DIR / "eval" / "dataset.json"
 

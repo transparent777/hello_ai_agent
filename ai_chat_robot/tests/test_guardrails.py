@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
+
+_APP_DIR = Path(__file__).resolve().parent.parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
 
 from agents import Agent, RunContextWrapper
 

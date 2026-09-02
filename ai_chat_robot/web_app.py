@@ -24,20 +24,32 @@ if str(_APP_DIR) not in sys.path:
 from agents import SQLiteSession
 from agents.exceptions import MaxTurnsExceeded
 
-from approval_store import PendingApprovalRecord, has_pending_approval
+from config.paths import DATA_DIR, PACKAGE_ROOT
+from config.file_agent import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
+from guardrails import GUARDRAILS_ENABLED
 from mcp_integration.runtime import mcp_status_summary
-from robot import (
+from orchestrator import (
     DEEPSEEK_FLASH,
     DEEPSEEK_PRO,
     SESSION_DB,
-    _script_dir,
     apply_approval_decision,
     build_run_config,
-    customer_service_router,
     describe_interruptions,
     handle_user_turn,
     restore_pending_approval,
 )
+from services.approval_store import PendingApprovalRecord, has_pending_approval
+from services.tracing import configure_tracing, get_recent_trace_count, tracing_status_summary
+from services.ui_session_store import (
+    append_message,
+    clear_session_messages,
+    count_messages,
+    init_ui_store,
+    list_sessions,
+    load_messages,
+    prune_empty_sessions,
+)
+from specialists import customer_service_router
 from sandbox.health import check_sandbox_health
 from sandbox.memory_sync import has_memory_summary
 from sandbox.metrics import get_metrics_summary
@@ -49,16 +61,6 @@ from sandbox.runtime import (
 )
 from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP, SANDBOX_PERSIST_SESSION, WEB_APP_API_KEY
 from sandbox.session_store import clear_persisted_session
-from tracing_setup import get_recent_trace_count, tracing_status_summary
-from ui_session_store import (
-    append_message,
-    clear_session_messages,
-    count_messages,
-    init_ui_store,
-    list_sessions,
-    load_messages,
-    prune_empty_sessions,
-)
 
 UI_DB = SESSION_DB
 MODEL_SHORT = {
@@ -341,8 +343,6 @@ def _resolve_initial_session_id() -> str:
 def _init_state() -> None:
     ensure_workspace_synced()
     prune_empty_sessions(UI_DB)
-    from tracing_setup import configure_tracing
-
     configure_tracing()
     if "web_authenticated" not in st.session_state:
         st.session_state.web_authenticated = False
@@ -384,9 +384,6 @@ def _is_ephemeral_session(session_id: str) -> bool:
 
 
 def _render_advanced_settings(current_id: str) -> None:
-    from file_agent_settings import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
-    from guardrails import GUARDRAILS_ENABLED
-
     with st.expander("高级设置", expanded=False):
         st.caption(f"会话 ID：`{current_id}`")
         if FILE_AGENT_ENABLED:
@@ -414,7 +411,7 @@ def _render_advanced_settings(current_id: str) -> None:
         if metrics["counters"] or metrics["timings"]:
             st.json(metrics, expanded=False)
 
-        data_dir = _script_dir / "data"
+        data_dir = DATA_DIR
         ok = (data_dir / "products.json").exists() and (data_dir / "orders.json").exists()
         if not ok:
             st.info("演示数据未生成：`python scripts/generate_catalog.py`")

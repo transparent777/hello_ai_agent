@@ -5,9 +5,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from config.paths import DATA_DIR
+
 SANDBOX_DIR = Path(__file__).resolve().parent
-SRC_DATA = PROJECT_ROOT / "data"
+SRC_DATA = DATA_DIR
 DEST_DATA = SANDBOX_DIR / "workspace" / "data"
 WORKSPACE_DIR = SANDBOX_DIR / "workspace"
 SRC_REPO = SANDBOX_DIR / "repo"

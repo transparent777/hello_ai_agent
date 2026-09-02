@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 from agents import function_tool
 
+from config.paths import DATA_DIR
 from guardrails import validate_order_id, validate_refund_request
-
-DATA_DIR = Path(__file__).resolve().parent / "data"
 PRODUCTS_FILE = DATA_DIR / "products.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
 
