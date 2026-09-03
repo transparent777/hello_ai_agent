@@ -26,6 +26,14 @@ DATA_VIRTUAL_PREFIX = "data/"
 CSV_ENCODING = "utf-8-sig"
 
 
+def _safe_csv_cell(value: object) -> object:
+    """Prefix spreadsheet formula-like values so Excel treats them as text."""
+    text = str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return value
+
+
 def _encoding_for_path(relative_path: str) -> str:
     if Path(relative_path).suffix.lower() == ".csv":
         return CSV_ENCODING
@@ -45,8 +53,10 @@ def _load_json_data(filename: str) -> list[dict]:
 def _write_csv_rows(path: Path, headers: list[str], rows: list[list]) -> int:
     with path.open("w", encoding=CSV_ENCODING, newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(headers)
-        writer.writerows(rows)
+        writer.writerow([_safe_csv_cell(cell) for cell in headers])
+        writer.writerows(
+            [[_safe_csv_cell(cell) for cell in row] for row in rows]
+        )
     return path.stat().st_size
 
 

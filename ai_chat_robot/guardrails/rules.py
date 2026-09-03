@@ -46,6 +46,13 @@ _EXFIL_PATTERNS = (
     r"wget\s+",
 )
 
+_ROUTER_NARRATION_PATTERNS = (
+    r"转接.*(?:失败|无效|没有产生|似乎|未成功)",
+    r"让我(?:重新|再).*(?:转接|transfer)",
+    r"看起来转接",
+    r"handoff.*(?:fail|失败)",
+)
+
 _OFF_TOPIC_PATTERNS = (
     r"作业|数学题|物理题|化学题|英语作文",
     r"写一段代码|帮我编程|leetcode",
@@ -416,7 +423,45 @@ ROUTER_INPUT_GUARDRAILS = [
     block_off_topic,
 ]
 
+@output_guardrail(name="block_router_handoff_narration")
+def block_router_handoff_narration(
+    context: RunContextWrapper[Any],
+    agent: Agent[Any],
+    output: Any,
+) -> GuardrailFunctionOutput:
+    """Router 禁止向用户解说转接过程或声称转接失败。"""
+    _ = context
+    if getattr(agent, "name", "") not in {"workspace_router", "customer_service_router"}:
+        return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
+
+    text = output if isinstance(output, str) else str(output)
+    hit = _matches_any(text, _ROUTER_NARRATION_PATTERNS)
+    if hit:
+        log_audit_event(
+            "output_guardrail_blocked",
+            status="blocked",
+            detail=f"router_narration:{hit}",
+            extra={"agent": getattr(agent, "name", "unknown")},
+        )
+        return GuardrailFunctionOutput(
+            tripwire_triggered=True,
+            output_info={
+                "reason": "router_handoff_narration",
+                "user_message": (
+                    "正在为您处理，请稍候。"
+                    "（请勿向用户描述转接过程；请直接 handoff 或给出最终答复。）"
+                ),
+            },
+        )
+    return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
+
+
 SPECIALIST_OUTPUT_GUARDRAILS = [sanitize_agent_output]
+
+ROUTER_OUTPUT_GUARDRAILS = [
+    sanitize_agent_output,
+    block_router_handoff_narration,
+]
 
 GUARDRAILS_ENABLED = os.getenv("GUARDRAILS_ENABLED", "true").strip().lower() in {
     "1",

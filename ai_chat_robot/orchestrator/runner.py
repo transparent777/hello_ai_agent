@@ -12,6 +12,7 @@ from agents.exceptions import (
     ToolInputGuardrailTripwireTriggered,
 )
 from agents.tracing import flush_traces, trace
+from agents.stream_events import AgentUpdatedStreamEvent, RunItemStreamEvent
 from openai.types.responses import ResponseTextDeltaEvent
 
 from guardrails import (
@@ -21,9 +22,18 @@ from guardrails import (
     log_approval_decision,
 )
 from mcp_integration.runtime import collect_mcp_servers_from_agents, run_with_mcp_lifecycle
-from config.agent_mode import ROUTER_MAX_TURNS, SPECIALIST_MAX_TURNS
+from config.agent_mode import ROUTER_MAX_TURNS, SPECIALIST_MAX_TURNS, is_router_agent
 from config.llm import MAX_TURNS, persist_sandbox_session
-from services.react_trace import ReactStep, ReactStepCollector
+from orchestrator.handoff_policy import (
+    build_deliverable_fallback,
+    detect_deliverable_intent,
+    note_react_step,
+    prepare_router_input,
+    sanitize_user_visible_output,
+)
+from orchestrator.turn_state import clear_turn_state, reset_turn_state
+from services.react_trace import ReactStep, ReactStepCollector, handoff_target_name
+from services.stream_filter import StreamGate
 from sandbox.memory_sync import refresh_memory_summary
 from sandbox.metrics import record_event, track_duration
 from sandbox.ops import run_with_retries, run_with_sandbox_slot
@@ -57,18 +67,45 @@ async def _consume_stream(
     on_delta: Any | None = None,
     react_collector: ReactStepCollector | None = None,
     on_react_step: Any | None = None,
+    stream_gate: StreamGate | None = None,
 ) -> str:
     parts: list[str] = []
     async for event in stream.stream_events():
+        if isinstance(event, RunItemStreamEvent) and event.name in {
+            "handoff_requested",
+            "handoff_occured",
+        }:
+            if stream_gate is not None:
+                stream_gate.note_handoff(handoff_target_name(event.item))
+
+        if isinstance(event, AgentUpdatedStreamEvent):
+            agent_name = getattr(event.new_agent, "name", "unknown")
+            if react_collector is not None:
+                react_collector.set_agent(agent_name)
+            if stream_gate is not None:
+                stream_gate.set_agent(agent_name)
+
         if react_collector is not None:
             step = react_collector.consume(event)
             if step is not None and on_react_step is not None:
                 on_react_step(step)
+
         delta = _extract_delta(event)
         if delta:
             parts.append(delta)
             if on_delta is not None:
-                on_delta(delta)
+                visible = (
+                    stream_gate.emit(delta)
+                    if stream_gate is not None
+                    else delta
+                )
+                if visible:
+                    on_delta(visible)
+
+    if stream_gate is not None and on_delta is not None:
+        tail = stream_gate.flush()
+        if tail:
+            on_delta(tail)
 
     if stream.run_loop_exception:
         raise stream.run_loop_exception
@@ -85,6 +122,7 @@ async def run_streamed_turn(
     on_delta: Any | None = None,
     on_react_step: Any | None = None,
     react_collector: ReactStepCollector | None = None,
+    stream_gate: StreamGate | None = None,
 ) -> tuple[str, Any, list[ReactStep]]:
     """一次应用级 turn：流式消费完毕后，才视为 run 已结算。"""
     collector = react_collector or ReactStepCollector(
@@ -103,6 +141,7 @@ async def run_streamed_turn(
         on_delta=on_delta,
         react_collector=collector,
         on_react_step=on_react_step,
+        stream_gate=stream_gate,
     )
     return text, stream, collector.steps
 
@@ -116,6 +155,7 @@ async def resume_from_state(
     on_delta: Any | None = None,
     on_react_step: Any | None = None,
     react_collector: ReactStepCollector | None = None,
+    stream_gate: StreamGate | None = None,
 ) -> tuple[str, Any, list[ReactStep]]:
     """从 RunState 恢复暂停或中断的同一轮，不传新 user message。"""
     collector = react_collector or ReactStepCollector(
@@ -134,6 +174,7 @@ async def resume_from_state(
         on_delta=on_delta,
         react_collector=collector,
         on_react_step=on_react_step,
+        stream_gate=stream_gate,
     )
     return text, stream, collector.steps
 
@@ -236,6 +277,31 @@ async def resolve_interruptions(
     return current
 
 
+def _guardrail_retryable(exc: BaseException) -> bool:
+    return not isinstance(
+        exc,
+        (
+            InputGuardrailTripwireTriggered,
+            OutputGuardrailTripwireTriggered,
+            ToolInputGuardrailTripwireTriggered,
+        ),
+    )
+
+
+def _finalize_user_output(
+    text: str | None,
+    result: Any,
+    steps: list[ReactStep],
+) -> str | None:
+    cleaned = sanitize_user_visible_output(text or "")
+    if cleaned:
+        return cleaned
+    fallback = build_deliverable_fallback(steps)
+    if fallback:
+        return fallback
+    return text
+
+
 async def handle_user_turn(
     agent: Agent,
     user_input: str,
@@ -250,8 +316,17 @@ async def handle_user_turn(
     _ = actor
     servers = collect_mcp_servers_from_agents(*AGENT_REGISTRY.values())
     react_steps: list[ReactStep] = []
+    turn_token = reset_turn_state()
+    deliverable_task = detect_deliverable_intent(user_input)
+    stream_gate = StreamGate(deliverable_task=deliverable_task)
+    agent_input = (
+        prepare_router_input(user_input)
+        if is_router_agent(getattr(agent, "name", None))
+        else user_input
+    )
 
     def _collect_step(step: ReactStep) -> None:
+        note_react_step(step)
         react_steps.append(step)
         if on_react_step is not None:
             on_react_step(step)
@@ -265,24 +340,29 @@ async def handle_user_turn(
                         return await run_with_sandbox_slot(
                             lambda: run_streamed_turn(
                                 agent,
-                                user_input,
+                                agent_input,
                                 session,
                                 run_config,
                                 on_delta=on_delta,
                                 on_react_step=_collect_step,
+                                stream_gate=stream_gate,
                             ),
                             timeout_seconds=SANDBOX_RUN_TIMEOUT_SECONDS,
                         )
                     return await run_streamed_turn(
                         agent,
-                        user_input,
+                        agent_input,
                         session,
                         run_config,
                         on_delta=on_delta,
                         on_react_step=_collect_step,
+                        stream_gate=stream_gate,
                     )
 
-                _, result, steps = await run_with_retries(_run_once)
+                _, result, steps = await run_with_retries(
+                    _run_once,
+                    retryable=_guardrail_retryable,
+                )
                 react_steps.extend(steps)
 
             if result.interruptions:
@@ -299,13 +379,17 @@ async def handle_user_turn(
                 sandbox=run_config.sandbox is not None,
                 published_files=len(published),
             )
-            return result.final_output, result, react_steps
+            final_text = _finalize_user_output(result.final_output, result, react_steps)
+            return final_text, result, react_steps
 
         except InputGuardrailTripwireTriggered as exc:
             record_event("input_guardrail_triggered")
             return format_input_guardrail_message(exc), None, react_steps
         except OutputGuardrailTripwireTriggered as exc:
             record_event("output_guardrail_triggered")
+            fallback = build_deliverable_fallback(react_steps)
+            if fallback:
+                return fallback, None, react_steps
             return format_output_guardrail_message(exc), None, react_steps
         except ToolInputGuardrailTripwireTriggered as exc:
             record_event("tool_input_guardrail_triggered")
@@ -326,10 +410,13 @@ async def handle_user_turn(
 
         return None, None, react_steps
 
-    with trace(
-        "workspace_user_turn",
-        metadata={"session_id": session.session_id, "actor": actor or "user"},
-    ):
-        outcome = await run_with_mcp_lifecycle(servers, _execute_turn)
-    flush_traces()
-    return outcome
+    try:
+        with trace(
+            "workspace_user_turn",
+            metadata={"session_id": session.session_id, "actor": actor or "user"},
+        ):
+            outcome = await run_with_mcp_lifecycle(servers, _execute_turn)
+        flush_traces()
+        return outcome
+    finally:
+        clear_turn_state(turn_token)

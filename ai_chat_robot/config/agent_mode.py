@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 
-from config.settings import _env_bool
+from config.settings import SHOW_REACT_STEPS
 
 AGENT_MODE = os.getenv("AGENT_MODE", "hierarchical").strip().lower()
 ROUTER_AGENT_NAME = "workspace_router"
 ROUTER_MAX_TURNS = int(os.getenv("ROUTER_MAX_TURNS", "5"))
 SPECIALIST_MAX_TURNS = int(os.getenv("SPECIALIST_MAX_TURNS", "12"))
-SHOW_REACT_STEPS_DEFAULT = _env_bool("SHOW_REACT_STEPS", False)
+SHOW_REACT_STEPS_DEFAULT = SHOW_REACT_STEPS
 
 _ROUTER_NAMES = frozenset({ROUTER_AGENT_NAME, "customer_service_router"})
 

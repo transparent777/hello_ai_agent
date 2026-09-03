@@ -8,6 +8,15 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _owner_prefix(owner_id: str) -> str:
+    return f"web_{owner_id}_"
+
+
+def _assert_owner(session_id: str, owner_id: str | None) -> None:
+    if owner_id and not session_id.startswith(_owner_prefix(owner_id)):
+        raise ValueError("session does not belong to the current user")
+
+
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -90,7 +99,9 @@ def append_message(
     content: str,
     *,
     meta_json: str | None = None,
+    owner_id: str | None = None,
 ) -> None:
+    _assert_owner(session_id, owner_id)
     now = datetime.now().isoformat(timespec="seconds")
     title = None
     if role == "user":
@@ -109,7 +120,10 @@ def append_message(
         conn.commit()
 
 
-def load_messages(db_path: Path, session_id: str) -> list[dict[str, str]]:
+def load_messages(
+    db_path: Path, session_id: str, *, owner_id: str | None = None
+) -> list[dict[str, str]]:
+    _assert_owner(session_id, owner_id)
     with _connect(db_path) as conn:
         _ensure_meta_column(conn)
         rows = conn.execute(
@@ -129,7 +143,10 @@ def load_messages(db_path: Path, session_id: str) -> list[dict[str, str]]:
     return messages
 
 
-def count_messages(db_path: Path, session_id: str) -> int:
+def count_messages(
+    db_path: Path, session_id: str, *, owner_id: str | None = None
+) -> int:
+    _assert_owner(session_id, owner_id)
     with _connect(db_path) as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM ui_chat_messages WHERE session_id = ?",
@@ -138,7 +155,9 @@ def count_messages(db_path: Path, session_id: str) -> int:
     return int(row["n"]) if row else 0
 
 
-def list_sessions(db_path: Path, *, min_messages: int = 1) -> list[dict[str, str]]:
+def list_sessions(
+    db_path: Path, *, min_messages: int = 1, owner_id: str | None = None
+) -> list[dict[str, str]]:
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -150,6 +169,9 @@ def list_sessions(db_path: Path, *, min_messages: int = 1) -> list[dict[str, str
             """
         ).fetchall()
     sessions = [dict(row) for row in rows if int(row["message_count"]) >= min_messages]
+    if owner_id:
+        prefix = _owner_prefix(owner_id)
+        sessions = [s for s in sessions if str(s["session_id"]).startswith(prefix)]
     return sessions
 
 
@@ -168,7 +190,10 @@ def prune_empty_sessions(db_path: Path) -> int:
         return cursor.rowcount
 
 
-def clear_session_messages(db_path: Path, session_id: str) -> None:
+def clear_session_messages(
+    db_path: Path, session_id: str, *, owner_id: str | None = None
+) -> None:
+    _assert_owner(session_id, owner_id)
     with _connect(db_path) as conn:
         conn.execute(
             "DELETE FROM ui_chat_messages WHERE session_id = ?",
@@ -181,9 +206,25 @@ def clear_session_messages(db_path: Path, session_id: str) -> None:
         conn.commit()
 
 
-def clear_all_ui_sessions(db_path: Path) -> int:
+def clear_all_ui_sessions(db_path: Path, *, owner_id: str | None = None) -> int:
     """删除全部 Web 聊天历史，返回清除的会话数。"""
     with _connect(db_path) as conn:
+        if owner_id:
+            prefix = _owner_prefix(owner_id)
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM ui_chat_sessions WHERE session_id LIKE ?",
+                (prefix + "%",),
+            ).fetchone()
+            conn.execute(
+                "DELETE FROM ui_chat_messages WHERE session_id LIKE ?",
+                (prefix + "%",),
+            )
+            conn.execute(
+                "DELETE FROM ui_chat_sessions WHERE session_id LIKE ?",
+                (prefix + "%",),
+            )
+            conn.commit()
+            return int(row["n"]) if row else 0
         row = conn.execute("SELECT COUNT(*) AS n FROM ui_chat_sessions").fetchone()
         count = int(row["n"]) if row else 0
         conn.execute("DELETE FROM ui_chat_messages")
@@ -192,5 +233,7 @@ def clear_all_ui_sessions(db_path: Path) -> int:
     return count
 
 
-def delete_session(db_path: Path, session_id: str) -> None:
-    clear_session_messages(db_path, session_id)
+def delete_session(
+    db_path: Path, session_id: str, *, owner_id: str | None = None
+) -> None:
+    clear_session_messages(db_path, session_id, owner_id=owner_id)

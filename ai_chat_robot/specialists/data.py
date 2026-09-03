@@ -27,7 +27,9 @@ def create_data_specialist() -> Agent:
         "- 生成 Markdown 报表 → run_sales_report\n"
         "开始前阅读 repo/task.md；若存在 memories/memory_summary.md 可参考历史结论。\n"
         "用中文解释关键数字，并说明产物路径（如 output/report.md、reports/）。\n"
-        "复杂多步任务完成后，可 transfer_to_workspace_router 请 L1 汇总。"
+        "报表/分析完成后：**必须** transfer_to_workspace_router，"
+        "交接「验收：分析已完成；产物路径：…；关键结论：…」。\n"
+        "不要对用户做终稿，由 L1 验收后输出。"
     )
 
     if is_docker_available() and SANDBOX_AGENT_SUPPORTED:

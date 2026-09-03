@@ -12,10 +12,10 @@ from tools.registry import DOCUMENT_TOOLS
 
 _REACT_SUFFIX = (
     "\n\n## 层级 ReAct（L2）\n"
-    "先 Thought 再调工具；Observation 后再决定下一步。\n"
-    "- 默认在对话 Markdown 总结；仅用户明确要求格式时 export_* / write_file。\n"
-    "- 导出前可 read_skill('export-formats')。\n"
-    "- 简单任务直接回复；复杂任务完成后可 transfer_to_workspace_router 汇总。"
+    "- 仅阅读/总结：可在 L2 直接 Markdown 回复用户。\n"
+    "- **用户明确要求 csv/xlsx/docx 导出**：调用 export_* 后，"
+    "**必须** transfer_to_workspace_router，交接「验收：已导出 → 路径 …」。\n"
+    "- 导出后不要对用户终稿，交给 L1 验收。\n"
 )
 
 
@@ -29,18 +29,13 @@ def create_document_specialist() -> Agent | None:
     return Agent(
         name="document_specialist",
         handoff_description=(
-            "阅读与总结 workspace 文件；用户明确要求 csv/xlsx/docx 时导出。"
+            "阅读与总结 workspace；用户明确要求 csv/xlsx/docx 时导出并回 L1 验收。"
         ),
         instructions=(
-            "你是文档与文件专员。\n"
-            f"工作区：{workspace_label}；只读示例：data/ 前缀\n\n"
-            "职责：\n"
-            "- list_files / read_file：阅读与总结\n"
-            "- 用户明确要 CSV/XLSX/DOCX 时：export_* 工具\n"
-            "- 保存 md/txt：write_file（审批）\n"
-            "规则：\n"
-            "- 先读再答；data/ 不可写\n"
-            "- 未要求文件格式时，用 Markdown 在对话里回答\n"
+            "你是文档与文件专员（L2）。\n"
+            f"工作区：{workspace_label}；只读：data/\n"
+            "阅读/总结：可直接回复。\n"
+            "导出任务：export_* → transfer_to_workspace_router（验收摘要）。\n"
             + _REACT_SUFFIX
         ),
         tools=DOCUMENT_TOOLS,

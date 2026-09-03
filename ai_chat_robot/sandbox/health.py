@@ -98,6 +98,10 @@ def check_sandbox_health(*, pull_if_missing: bool = False) -> SandboxHealthRepor
     resolved = resolve_docker_image(SANDBOX_DOCKER_IMAGE)
     report.image_digest_pinned = "@sha256:" in resolved
     report.details["resolved_image"] = resolved
+    if SANDBOX_PIN_IMAGE_DIGEST and not report.image_digest_pinned:
+        report.issues.append(
+            "无法解析 Docker 镜像 digest；为避免使用可变标签，已拒绝该镜像。"
+        )
 
     workspace_data = (
         Path(__file__).resolve().parent / "workspace" / "data" / "orders.json"

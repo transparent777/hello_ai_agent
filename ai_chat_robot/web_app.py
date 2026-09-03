@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import os
 import sys
 import uuid
@@ -29,6 +30,7 @@ from config.file_agent import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
 from config.settings import SHOW_REACT_STEPS
 from guardrails import GUARDRAILS_ENABLED
 from mcp_integration.runtime import mcp_status_summary
+from orchestrator.handoff_policy import sanitize_user_visible_output
 from orchestrator import (
     DEEPSEEK_FLASH,
     DEEPSEEK_PRO,
@@ -319,7 +321,9 @@ def _ensure_authenticated() -> bool:
 
 def _load_session_into_ui(session_id: str, *, bump_nav: bool = False) -> None:
     st.session_state.agent_session = SQLiteSession(session_id, db_path=SESSION_DB)
-    st.session_state.ui_messages = load_messages(UI_DB, session_id)
+    st.session_state.ui_messages = load_messages(
+        UI_DB, session_id, owner_id=st.session_state.web_owner_id
+    )
     st.session_state.pending_approval = restore_pending_approval(session_id)
     if bump_nav:
         st.session_state.session_nav_token = (
@@ -329,10 +333,13 @@ def _load_session_into_ui(session_id: str, *, bump_nav: bool = False) -> None:
 
 
 def _new_session_id() -> str:
-    return f"web_{uuid.uuid4().hex[:8]}"
+    return f"web_{st.session_state.web_owner_id}_{uuid.uuid4().hex}"
 
 
 def _switch_session(session_id: str) -> None:
+    if not session_id.startswith(f"web_{st.session_state.web_owner_id}_"):
+        st.error("无法访问该会话")
+        return
     if session_id == st.session_state.agent_session.session_id:
         return
     _load_session_into_ui(session_id, bump_nav=True)
@@ -356,6 +363,8 @@ def _init_state() -> None:
     configure_tracing()
     if "web_authenticated" not in st.session_state:
         st.session_state.web_authenticated = False
+    if "web_owner_id" not in st.session_state:
+        st.session_state.web_owner_id = uuid.uuid4().hex
     if "session_nav_token" not in st.session_state:
         st.session_state.session_nav_token = 0
     if "sandbox_health" not in st.session_state:
@@ -369,7 +378,9 @@ def _init_state() -> None:
         _load_session_into_ui(_resolve_initial_session_id())
     if "ui_messages" not in st.session_state:
         st.session_state.ui_messages = load_messages(
-            UI_DB, st.session_state.agent_session.session_id
+            UI_DB,
+            st.session_state.agent_session.session_id,
+            owner_id=st.session_state.web_owner_id,
         )
     if "run_config" not in st.session_state:
         _sync_run_config()
@@ -400,6 +411,7 @@ def _append_and_persist(
         role,
         content,
         meta_json=meta_json,
+        owner_id=st.session_state.web_owner_id,
     )
 
 
@@ -419,7 +431,12 @@ def _render_react_steps(steps: list[ReactStep]) -> None:
 
 
 def _is_ephemeral_session(session_id: str) -> bool:
-    return count_messages(UI_DB, session_id) == 0
+    return (
+        count_messages(
+            UI_DB, session_id, owner_id=st.session_state.web_owner_id
+        )
+        == 0
+    )
 
 
 def _render_advanced_settings(current_id: str) -> None:
@@ -473,7 +490,9 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        sessions = list_sessions(UI_DB, min_messages=1)
+        sessions = list_sessions(
+            UI_DB, min_messages=1, owner_id=st.session_state.web_owner_id
+        )
         session_ids = [str(s["session_id"]) for s in sessions]
         labels = {str(s["session_id"]): _session_label(s) for s in sessions}
 
@@ -533,7 +552,9 @@ def _render_sidebar() -> None:
 
         st.divider()
         if st.button("清空当前对话", use_container_width=True):
-            clear_session_messages(UI_DB, current_id)
+            clear_session_messages(
+                UI_DB, current_id, owner_id=st.session_state.web_owner_id
+            )
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
             st.session_state.pending_approval = None
@@ -541,7 +562,7 @@ def _render_sidebar() -> None:
             st.rerun()
 
         if st.button("删除全部历史", use_container_width=True):
-            clear_all_ui_sessions(UI_DB)
+            clear_all_ui_sessions(UI_DB, owner_id=st.session_state.web_owner_id)
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
             st.session_state.pending_approval = None
@@ -647,8 +668,10 @@ def _execute_agent_turn(prompt: str) -> None:
             note = buffer["text"] or "已触发敏感操作，请在下方确认。"
             _append_and_persist("assistant", note, react_steps=react_steps)
         else:
-            final = buffer["text"] or text or ""
+            streamed = sanitize_user_visible_output(buffer["text"])
+            final = sanitize_user_visible_output(text or "") or streamed
             if final:
+                placeholder.markdown(final)
                 _append_and_persist("assistant", final, react_steps=react_steps)
                 if st.session_state.show_react_steps:
                     _render_react_steps(react_steps)
@@ -656,7 +679,7 @@ def _execute_agent_turn(prompt: str) -> None:
 
 def _render_approval_card() -> None:
     items = describe_interruptions(st.session_state.pending_approval)
-    items_html = "".join(f"<li>{item}</li>" for item in items)
+    items_html = "".join(f"<li>{html.escape(item)}</li>" for item in items)
     st.markdown(
         f"""
         <div class="approval-card">

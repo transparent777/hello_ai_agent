@@ -107,6 +107,10 @@ class ReactStepCollector:
         return None
 
 
+def handoff_target_name(item: Any) -> str:
+    return _handoff_target(item)
+
+
 def _handoff_target(item: Any) -> str:
     target = getattr(item, "target_agent", None)
     if target is not None:

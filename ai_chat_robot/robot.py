@@ -18,6 +18,7 @@ from orchestrator import (
     handle_user_turn,
     resolve_interruptions,
 )
+from orchestrator.handoff_policy import sanitize_user_visible_output
 from sandbox.health import check_sandbox_health
 from sandbox.runtime import (
     analytics_backend_available,
@@ -49,28 +50,46 @@ async def chat_loop() -> None:
             break
 
         print("助手: ", end="", flush=True)
+        streamed: list[str] = []
+
+        def on_delta(delta: str) -> None:
+            streamed.append(delta)
+            print(delta, end="", flush=True)
+
         text, result, react_steps = await handle_user_turn(
             workspace_router,
             user_input,
             session,
             run_config,
-            on_delta=lambda d: print(d, end="", flush=True),
+            on_delta=on_delta,
         )
+
+        clean_stream = sanitize_user_visible_output("".join(streamed))
+        final_text = sanitize_user_visible_output(text or "")
+
+        # 流式阶段若漏出英文/DSML，用清洗后的终稿覆盖展示
+        if final_text and final_text.strip() != clean_stream.strip():
+            if clean_stream.strip():
+                print()
+            print(final_text)
+
+        if clean_stream or final_text:
+            print()
+
         if SHOW_REACT_STEPS and react_steps:
-            print(f"\n  └─ {compact_summary(react_steps)}")
+            print(f"  └─ {compact_summary(react_steps)}")
         if result and result.interruptions:
             result = await resolve_interruptions(result, session, run_config)
-            text = result.final_output
         elif isinstance(result, PendingApprovalRecord) and result.live_result is not None:
             result = await resolve_interruptions(result.live_result, session, run_config)
-            text = result.final_output
-        if text:
-            print()
-        elif result is None or (
-            not getattr(result, "interruptions", None)
-            and not isinstance(result, PendingApprovalRecord)
+        elif not final_text and (
+            result is None
+            or (
+                not getattr(result, "interruptions", None)
+                and not isinstance(result, PendingApprovalRecord)
+            )
         ):
-            print("\n（助手未返回内容，请查看上方 [运行时失败] 提示）")
+            print("（助手未返回内容，请查看上方 [运行时失败] 提示）")
 
 
 async def main() -> None:

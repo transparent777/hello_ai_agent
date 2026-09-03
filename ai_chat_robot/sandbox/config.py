@@ -128,11 +128,9 @@ def build_docker_options():
 
     from sandbox.health import resolve_docker_image
 
-    image = (
-        resolve_docker_image(DEFAULT_DOCKER_IMAGE)
-        if SANDBOX_PIN_IMAGE_DIGEST
-        else DEFAULT_DOCKER_IMAGE
-    )
+    image = resolve_docker_image(DEFAULT_DOCKER_IMAGE) if SANDBOX_PIN_IMAGE_DIGEST else DEFAULT_DOCKER_IMAGE
+    if SANDBOX_PIN_IMAGE_DIGEST and "@sha256:" not in image:
+        raise RuntimeError("SANDBOX_PIN_IMAGE_DIGEST=true requires a resolvable image digest")
     return DockerSandboxClientOptions(
         image=image,
         network_mode="none",

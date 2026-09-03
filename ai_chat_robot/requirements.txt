@@ -1,11 +1,11 @@
 # 电商 Agent + Web + Sandbox（Docker）
 
-streamlit>=1.32.0
-python-dotenv>=1.0.0
-openai-agents[docker]>=0.2.0
-openai>=1.0.0
-mcp>=2.0.0
-requests>=2.31.0
-docker>=7.0.0
-openpyxl>=3.1.0
-python-docx>=1.1.0
+streamlit==1.62.0
+python-dotenv==1.2.3
+openai-agents[docker]==0.22.0
+openai==3.3.1
+mcp==2.1.1
+requests==2.34.2
+docker==7.2.0
+openpyxl==3.1.5
+python-docx==1.2.0

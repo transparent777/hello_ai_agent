@@ -37,6 +37,14 @@ _BODY_SIZE_PT = 12
 _TITLE_SIZE_PT = 16
 
 
+def _safe_csv_cell(value: object) -> object:
+    """Prevent spreadsheet formula execution when opening exported CSVs."""
+    text = str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return value
+
+
 def _parse_table_json(table_json: str) -> tuple[list[str], list[list]]:
     data = json.loads(table_json)
     if isinstance(data, dict) and "headers" in data and "rows" in data:
@@ -84,8 +92,10 @@ def export_table_csv_impl(relative_path: str, table_json: str) -> str:
     path = resolve_safe_path(relative_path, create_parents=True)
     with path.open("w", encoding=CSV_ENCODING, newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(headers)
-        writer.writerows(rows)
+        writer.writerow([_safe_csv_cell(cell) for cell in headers])
+        writer.writerows(
+            [[_safe_csv_cell(cell) for cell in row] for row in rows]
+        )
     size = path.stat().st_size
     log_audit_event(
         "file_agent_export_csv",

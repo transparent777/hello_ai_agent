@@ -55,6 +55,10 @@ SANDBOX_INSTRUCTIONS = """
 def assert_python_only_command(command: str) -> None:
     """校验命令是否符合白名单；不符合则抛 ValueError。"""
     cmd = command.strip()
+    # exec_command passes the string to a shell; reject shell operators and
+    # control characters before applying the Python/script allowlist.
+    if any(char in cmd for char in ";&|<>`$\n\r"):
+        raise ValueError("shell operators are not allowed")
     if not cmd:
         raise ValueError("空命令不允许执行")
 
@@ -76,6 +80,9 @@ def assert_python_only_command(command: str) -> None:
 
     if len(parts) < 2:
         raise ValueError("必须指定要运行的脚本，例如: python scripts/analyze_orders.py")
+
+    if any(token in {"-c", "-m", "-", "--command"} for token in parts[2:]):
+        raise ValueError("direct Python code execution is not allowed")
 
     script = parts[1].replace("\\", "/")
     if not (
