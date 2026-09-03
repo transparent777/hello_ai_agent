@@ -52,6 +52,12 @@ _OFF_TOPIC_PATTERNS = (
     r"写一篇论文|毕业论文",
 )
 
+_GENERAL_ASSISTANT_HINTS = (
+    r"你好|谢谢|帮助|怎么用|是什么|为什么|如何|解释|讨论|聊聊",
+    r"文案|邮件|通知|标题|口号|营销|小红书|朋友圈|作文|写诗|写一段|润色",
+    r"总结|摘要|概括|建议|想法|意见|推荐",
+)
+
 _WORKSPACE_TASK_HINTS = (
     r"文件|文件夹|目录|folder|file|读取|写入|保存|创建文件|列出|整理|总结|摘要",
     r"txt|csv|json|markdown|\.md|workspace_user|工作区|data/",
@@ -95,12 +101,16 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> str | None:
     return None
 
 
+def _has_general_assistant_hint(text: str) -> bool:
+    return _matches_any(text, _GENERAL_ASSISTANT_HINTS) is not None
+
+
 def _has_workspace_task_hint(text: str) -> bool:
     return _matches_any(text, _WORKSPACE_TASK_HINTS) is not None
 
 
 def _has_router_allowed_topic(text: str) -> bool:
-    return _has_workspace_task_hint(text)
+    return _has_workspace_task_hint(text) or _has_general_assistant_hint(text)
 
 
 def _tripwire(
@@ -187,8 +197,8 @@ def block_off_topic(
         return _tripwire(
             reason=f"off_topic:{hit}",
             user_message=(
-                "我是文件与数据处理助手，可阅读总结 workspace 内文件、"
-                "生成报表，或在沙箱中做统计分析。请换个相关问题试试。"
+                "我是通用工作台助手，可聊天、写文案、处理文件与数据。"
+                "请换个相关问题试试。"
             ),
             guardrail_name="block_off_topic",
         )

@@ -11,7 +11,7 @@ import asyncio
 from agents import SQLiteSession
 
 from config.paths import DATA_DIR
-from config.settings import SESSION_ID
+from config.settings import SESSION_ID, SHOW_REACT_STEPS
 from orchestrator import (
     SESSION_DB,
     build_run_config,
@@ -27,6 +27,7 @@ from sandbox.runtime import (
 )
 from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP
 from services.approval_store import PendingApprovalRecord
+from services.react_trace import compact_summary
 from specialists import workspace_router
 
 
@@ -48,13 +49,15 @@ async def chat_loop() -> None:
             break
 
         print("助手: ", end="", flush=True)
-        text, result = await handle_user_turn(
+        text, result, react_steps = await handle_user_turn(
             workspace_router,
             user_input,
             session,
             run_config,
             on_delta=lambda d: print(d, end="", flush=True),
         )
+        if SHOW_REACT_STEPS and react_steps:
+            print(f"\n  └─ {compact_summary(react_steps)}")
         if result and result.interruptions:
             result = await resolve_interruptions(result, session, run_config)
             text = result.final_output

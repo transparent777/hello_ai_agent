@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,15 @@ def init_ui_store(db_path: Path) -> None:
             """
         )
         conn.commit()
+        _ensure_meta_column(conn)
+
+
+def _ensure_meta_column(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute("ALTER TABLE ui_chat_messages ADD COLUMN meta_json TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
 
 def touch_session(db_path: Path, session_id: str, title: str | None = None) -> None:
@@ -78,6 +88,8 @@ def append_message(
     session_id: str,
     role: str,
     content: str,
+    *,
+    meta_json: str | None = None,
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     title = None
@@ -86,27 +98,35 @@ def append_message(
 
     touch_session(db_path, session_id, title=title)
     with _connect(db_path) as conn:
+        _ensure_meta_column(conn)
         conn.execute(
             """
-            INSERT INTO ui_chat_messages (session_id, role, content, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO ui_chat_messages (session_id, role, content, created_at, meta_json)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (session_id, role, content, now),
+            (session_id, role, content, now, meta_json),
         )
         conn.commit()
 
 
 def load_messages(db_path: Path, session_id: str) -> list[dict[str, str]]:
     with _connect(db_path) as conn:
+        _ensure_meta_column(conn)
         rows = conn.execute(
             """
-            SELECT role, content FROM ui_chat_messages
+            SELECT role, content, meta_json FROM ui_chat_messages
             WHERE session_id = ?
             ORDER BY id ASC
             """,
             (session_id,),
         ).fetchall()
-    return [{"role": row["role"], "content": row["content"]} for row in rows]
+    messages: list[dict[str, str]] = []
+    for row in rows:
+        msg: dict[str, str] = {"role": row["role"], "content": row["content"]}
+        if row["meta_json"]:
+            msg["meta_json"] = row["meta_json"]
+        messages.append(msg)
+    return messages
 
 
 def count_messages(db_path: Path, session_id: str) -> int:

@@ -41,7 +41,7 @@ async def _run_case(case: dict) -> dict:
     session = SQLiteSession(session_id, db_path=SESSION_DB)
     run_config = build_run_config(session_id=session_id)
 
-    text, result = await handle_user_turn(
+    text, result, _steps = await handle_user_turn(
         workspace_router,
         case["prompt"],
         session,

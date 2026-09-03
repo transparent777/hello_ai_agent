@@ -26,6 +26,7 @@ from agents.exceptions import MaxTurnsExceeded
 
 from config.paths import DATA_DIR, PACKAGE_ROOT
 from config.file_agent import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
+from config.settings import SHOW_REACT_STEPS
 from guardrails import GUARDRAILS_ENABLED
 from mcp_integration.runtime import mcp_status_summary
 from orchestrator import (
@@ -70,9 +71,9 @@ MODEL_SHORT = {
 }
 
 QUICK_PROMPTS = [
+    "写一段关于秋天的短文（对话里直接回复）",
     "列出工作区里有哪些文件",
-    "阅读并总结 demo 目录下的文本",
-    "把要点整理成 notes/summary.md",
+    "把 data/orders.json 导出为 csv 到 exports/",
     "分析一下 data/orders.json 订单数据",
     "生成一份销售分析报表",
 ]
@@ -157,7 +158,17 @@ st.markdown(
         font-weight: 600;
         margin-bottom: 0.35rem;
     }
-    div[data-testid="stChatMessage"] {
+    .react-step-line {
+        font-size: 0.78rem;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        margin: 0.1rem 0;
+    }
+    .react-summary {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 0.35rem;
+    }
         background: transparent !important;
         border: none !important;
         padding: 0.35rem 0 !important;
@@ -366,16 +377,45 @@ def _init_state() -> None:
         st.session_state.run_config_error = None
     if "pending_approval" not in st.session_state:
         st.session_state.pending_approval = None
+    if "show_react_steps" not in st.session_state:
+        st.session_state.show_react_steps = SHOW_REACT_STEPS
 
 
-def _append_and_persist(role: str, content: str) -> None:
-    st.session_state.ui_messages.append({"role": role, "content": content})
+def _append_and_persist(
+    role: str,
+    content: str,
+    *,
+    react_steps: list[ReactStep] | None = None,
+) -> None:
+    meta_json = None
+    if react_steps:
+        meta_json = steps_to_json(react_steps)
+    msg: dict = {"role": role, "content": content}
+    if meta_json:
+        msg["meta_json"] = meta_json
+    st.session_state.ui_messages.append(msg)
     append_message(
         UI_DB,
         st.session_state.agent_session.session_id,
         role,
         content,
+        meta_json=meta_json,
     )
+
+
+def _render_react_steps(steps: list[ReactStep]) -> None:
+    if not steps:
+        return
+    summary = compact_summary(steps)
+    with st.expander(f"步骤 · {len(steps)}（{summary}）", expanded=False):
+        for step in steps:
+            st.markdown(
+                f'<div class="react-step-line">[{step.layer}] {step.agent} · '
+                f"{step.label}</div>",
+                unsafe_allow_html=True,
+            )
+            if step.detail:
+                st.caption(step.detail[:500])
 
 
 def _is_ephemeral_session(session_id: str) -> bool:
@@ -485,6 +525,12 @@ def _render_sidebar() -> None:
 
         _render_advanced_settings(current_id)
 
+        st.toggle(
+            "显示 ReAct 步骤",
+            key="show_react_steps",
+            help="默认折叠缩写；展开可看工具调用详情",
+        )
+
         st.divider()
         if st.button("清空当前对话", use_container_width=True):
             clear_session_messages(UI_DB, current_id)
@@ -571,8 +617,10 @@ def _execute_agent_turn(prompt: str) -> None:
             buffer["text"] += delta
             placeholder.markdown(buffer["text"])
 
+        react_steps: list[ReactStep] = []
+
         try:
-            text, result = _run_async(
+            text, result, react_steps = _run_async(
                 handle_user_turn(
                     workspace_router,
                     prompt,
@@ -593,15 +641,17 @@ def _execute_agent_turn(prompt: str) -> None:
         if isinstance(result, PendingApprovalRecord):
             st.session_state.pending_approval = result
             note = buffer["text"] or "已触发敏感操作，请在下方确认。"
-            _append_and_persist("assistant", note)
+            _append_and_persist("assistant", note, react_steps=react_steps)
         elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
             note = buffer["text"] or "已触发敏感操作，请在下方确认。"
-            _append_and_persist("assistant", note)
+            _append_and_persist("assistant", note, react_steps=react_steps)
         else:
             final = buffer["text"] or text or ""
             if final:
-                _append_and_persist("assistant", final)
+                _append_and_persist("assistant", final, react_steps=react_steps)
+                if st.session_state.show_react_steps:
+                    _render_react_steps(react_steps)
 
 
 def _render_approval_card() -> None:
@@ -638,8 +688,8 @@ def _render_chat() -> None:
     st.markdown(
         """
         <div class="app-hero">
-            <h1>文件与数据助手</h1>
-            <p>文档阅读 · 内容总结 · 工作区写入 · 数据分析报表</p>
+            <h1>通用工作台助手</h1>
+            <p>聊天 · 文案 · 文件 · 数据 · 层级 ReAct</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -653,6 +703,10 @@ def _render_chat() -> None:
     for msg in st.session_state.ui_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg.get("meta_json"):
+                steps = steps_from_json(msg["meta_json"])
+                if steps and st.session_state.show_react_steps:
+                    _render_react_steps(steps)
 
     if st.session_state.pending_approval:
         _render_approval_card()

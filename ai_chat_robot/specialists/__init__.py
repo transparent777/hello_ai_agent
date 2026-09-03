@@ -4,6 +4,7 @@ from specialists.data import analytics_specialist, data_specialist
 from specialists.document import document_specialist, file_specialist
 from specialists.registry import AGENT_REGISTRY, get_agent_by_name
 from specialists.router import customer_service_router, workspace_router
+from specialists.writer import writer_specialist
 
 __all__ = [
     "AGENT_REGISTRY",
@@ -14,4 +15,5 @@ __all__ = [
     "file_specialist",
     "get_agent_by_name",
     "workspace_router",
+    "writer_specialist",
 ]

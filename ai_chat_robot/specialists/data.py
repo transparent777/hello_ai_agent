@@ -26,7 +26,8 @@ def create_data_specialist() -> Agent:
         "- 参数化模拟（如折扣）→ run_pricing_simulation\n"
         "- 生成 Markdown 报表 → run_sales_report\n"
         "开始前阅读 repo/task.md；若存在 memories/memory_summary.md 可参考历史结论。\n"
-        "用中文解释关键数字，并说明产物路径（如 output/report.md、reports/）。"
+        "用中文解释关键数字，并说明产物路径（如 output/report.md、reports/）。\n"
+        "复杂多步任务完成后，可 transfer_to_workspace_router 请 L1 汇总。"
     )
 
     if is_docker_available() and SANDBOX_AGENT_SUPPORTED:

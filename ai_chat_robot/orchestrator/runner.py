@@ -21,7 +21,9 @@ from guardrails import (
     log_approval_decision,
 )
 from mcp_integration.runtime import collect_mcp_servers_from_agents, run_with_mcp_lifecycle
+from config.agent_mode import ROUTER_MAX_TURNS, SPECIALIST_MAX_TURNS
 from config.llm import MAX_TURNS, persist_sandbox_session
+from services.react_trace import ReactStep, ReactStepCollector
 from sandbox.memory_sync import refresh_memory_summary
 from sandbox.metrics import record_event, track_duration
 from sandbox.ops import run_with_retries, run_with_sandbox_slot
@@ -45,25 +47,23 @@ def _extract_delta(event: Any) -> str | None:
     return None
 
 
-async def run_streamed_turn(
-    agent: Agent,
-    user_input: str,
-    session: SQLiteSession,
-    run_config: RunConfig,
+def _hierarchical_max_turns() -> int:
+    return max(MAX_TURNS, ROUTER_MAX_TURNS + SPECIALIST_MAX_TURNS)
+
+
+async def _consume_stream(
+    stream: Any,
     *,
     on_delta: Any | None = None,
-) -> tuple[str, Any]:
-    """一次应用级 turn：流式消费完毕后，才视为 run 已结算。"""
-    stream = Runner.run_streamed(
-        agent,
-        user_input,
-        session=session,
-        run_config=run_config,
-        max_turns=MAX_TURNS,
-    )
-
+    react_collector: ReactStepCollector | None = None,
+    on_react_step: Any | None = None,
+) -> str:
     parts: list[str] = []
     async for event in stream.stream_events():
+        if react_collector is not None:
+            step = react_collector.consume(event)
+            if step is not None and on_react_step is not None:
+                on_react_step(step)
         delta = _extract_delta(event)
         if delta:
             parts.append(delta)
@@ -73,7 +73,38 @@ async def run_streamed_turn(
     if stream.run_loop_exception:
         raise stream.run_loop_exception
 
-    return "".join(parts), stream
+    return "".join(parts)
+
+
+async def run_streamed_turn(
+    agent: Agent,
+    user_input: str,
+    session: SQLiteSession,
+    run_config: RunConfig,
+    *,
+    on_delta: Any | None = None,
+    on_react_step: Any | None = None,
+    react_collector: ReactStepCollector | None = None,
+) -> tuple[str, Any, list[ReactStep]]:
+    """一次应用级 turn：流式消费完毕后，才视为 run 已结算。"""
+    collector = react_collector or ReactStepCollector(
+        initial_agent=getattr(agent, "name", "workspace_router")
+    )
+    stream = Runner.run_streamed(
+        agent,
+        user_input,
+        session=session,
+        run_config=run_config,
+        max_turns=_hierarchical_max_turns(),
+    )
+
+    text = await _consume_stream(
+        stream,
+        on_delta=on_delta,
+        react_collector=collector,
+        on_react_step=on_react_step,
+    )
+    return text, stream, collector.steps
 
 
 async def resume_from_state(
@@ -83,28 +114,28 @@ async def resume_from_state(
     run_config: RunConfig,
     *,
     on_delta: Any | None = None,
-) -> tuple[str, Any]:
+    on_react_step: Any | None = None,
+    react_collector: ReactStepCollector | None = None,
+) -> tuple[str, Any, list[ReactStep]]:
     """从 RunState 恢复暂停或中断的同一轮，不传新 user message。"""
+    collector = react_collector or ReactStepCollector(
+        initial_agent=getattr(agent, "name", "workspace_router")
+    )
     stream = Runner.run_streamed(
         agent,
         state,
         session=session,
         run_config=run_config,
-        max_turns=MAX_TURNS,
+        max_turns=_hierarchical_max_turns(),
     )
 
-    parts: list[str] = []
-    async for event in stream.stream_events():
-        delta = _extract_delta(event)
-        if delta:
-            parts.append(delta)
-            if on_delta is not None:
-                on_delta(delta)
-
-    if stream.run_loop_exception:
-        raise stream.run_loop_exception
-
-    return "".join(parts), stream
+    text = await _consume_stream(
+        stream,
+        on_delta=on_delta,
+        react_collector=collector,
+        on_react_step=on_react_step,
+    )
+    return text, stream, collector.steps
 
 
 def describe_interruptions(run_result: Any) -> list[str]:
@@ -164,7 +195,7 @@ async def apply_approval_decision(
         interruptions=interruptions,
     )
 
-    text, result = await resume_from_state(
+    text, result, _steps = await resume_from_state(
         resume_agent,
         state,
         session,
@@ -212,17 +243,24 @@ async def handle_user_turn(
     run_config: RunConfig,
     *,
     on_delta: Any | None = None,
+    on_react_step: Any | None = None,
     actor: str | None = None,
-) -> tuple[str | None, Any | None]:
-    """处理一轮用户输入。返回 (回复文本, run_result)；审批暂停时 result 带 interruptions。"""
+) -> tuple[str | None, Any | None, list[ReactStep]]:
+    """处理一轮用户输入。返回 (回复文本, run_result, react_steps)。"""
     _ = actor
     servers = collect_mcp_servers_from_agents(*AGENT_REGISTRY.values())
+    react_steps: list[ReactStep] = []
 
-    async def _execute_turn() -> tuple[str | None, Any | None]:
+    def _collect_step(step: ReactStep) -> None:
+        react_steps.append(step)
+        if on_react_step is not None:
+            on_react_step(step)
+
+    async def _execute_turn() -> tuple[str | None, Any | None, list[ReactStep]]:
         try:
             with track_duration("agent_turn_total_ms"):
 
-                async def _run_once() -> Any:
+                async def _run_once() -> tuple[str, Any, list[ReactStep]]:
                     if run_config.sandbox is not None:
                         return await run_with_sandbox_slot(
                             lambda: run_streamed_turn(
@@ -231,20 +269,27 @@ async def handle_user_turn(
                                 session,
                                 run_config,
                                 on_delta=on_delta,
+                                on_react_step=_collect_step,
                             ),
                             timeout_seconds=SANDBOX_RUN_TIMEOUT_SECONDS,
                         )
                     return await run_streamed_turn(
-                        agent, user_input, session, run_config, on_delta=on_delta
+                        agent,
+                        user_input,
+                        session,
+                        run_config,
+                        on_delta=on_delta,
+                        on_react_step=_collect_step,
                     )
 
-                _, result = await run_with_retries(_run_once)
+                _, result, steps = await run_with_retries(_run_once)
+                react_steps.extend(steps)
 
             if result.interruptions:
                 pending = capture_pending_approval(session.session_id, result)
                 persist_sandbox_session(session.session_id, result)
                 record_event("agent_turn_interrupted")
-                return None, pending
+                return None, pending, react_steps
 
             published = publish_workspace_outputs()
             refresh_memory_summary(session.session_id)
@@ -254,31 +299,32 @@ async def handle_user_turn(
                 sandbox=run_config.sandbox is not None,
                 published_files=len(published),
             )
-            return result.final_output, result
+            return result.final_output, result, react_steps
 
         except InputGuardrailTripwireTriggered as exc:
             record_event("input_guardrail_triggered")
-            return format_input_guardrail_message(exc), None
+            return format_input_guardrail_message(exc), None, react_steps
         except OutputGuardrailTripwireTriggered as exc:
             record_event("output_guardrail_triggered")
-            return format_output_guardrail_message(exc), None
+            return format_output_guardrail_message(exc), None, react_steps
         except ToolInputGuardrailTripwireTriggered as exc:
             record_event("tool_input_guardrail_triggered")
             return (
                 f"**安全拦截**：工具调用未通过执行前审查（{exc.guardrail.get_name()}）。",
                 None,
+                react_steps,
             )
         except MaxTurnsExceeded:
             record_event("agent_turn_max_turns_exceeded")
             print(
-                f"\n[运行时失败] 超过最大轮次限制（max_turns={MAX_TURNS}）。"
-                "请简化问题或提高 AGENT_MAX_TURNS。"
+                f"\n[运行时失败] 超过最大轮次限制（max_turns={_hierarchical_max_turns()}）。"
+                "请简化问题或提高 AGENT_MAX_TURNS / SPECIALIST_MAX_TURNS。"
             )
         except Exception as exc:
             record_event("agent_turn_failed", error=type(exc).__name__)
             print(f"\n[运行时失败] {type(exc).__name__}: {exc}")
 
-        return None, None
+        return None, None, react_steps
 
     with trace(
         "workspace_user_turn",

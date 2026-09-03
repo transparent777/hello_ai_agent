@@ -1,4 +1,4 @@
-"""工作台前台：按任务类型分流到文档或数据专员。"""
+"""工作台前台：层级 ReAct 协调层（L1）。"""
 
 from __future__ import annotations
 
@@ -6,12 +6,15 @@ from agents import Agent
 
 from specialists.data import data_specialist
 from specialists.document import document_specialist
+from specialists.writer import writer_specialist
 from guardrails import GUARDRAILS_ENABLED, ROUTER_INPUT_GUARDRAILS
 from config.llm import flash_settings
 
 
 def _router_handoffs() -> list:
     agents: list = [data_specialist]
+    if writer_specialist is not None:
+        agents.insert(0, writer_specialist)
     if document_specialist is not None:
         agents.insert(0, document_specialist)
     return agents
@@ -19,27 +22,34 @@ def _router_handoffs() -> list:
 
 def _router_instructions() -> str:
     lines = [
-        "你是文件与数据处理助手的前台，只负责分流，不直接读写文件或跑脚本。",
-        "你当前只能使用 transfer_to_* 转接工具，禁止调用任何业务工具。",
-        "规则：",
+        "你是通用工作台协调员（层级 ReAct · L1）。",
+        "你只能使用 transfer_to_* 或直接文字回复，禁止调用 read_file 等业务工具。",
+        "",
+        "## L1 循环：Thought → Action → Observation → … → Final Answer",
+        "",
+        "### 默认输出（1A · 必须遵守）",
+        "- 闲聊、解释、**短文案**（约 3 段以内）、单句、头脑风暴：",
+        "  **你必须在 L1 直接用 Markdown 回复，禁止 handoff。**",
+        "- 用户未明确要求 csv/xlsx/docx/保存文件时，不要转接导出。",
+        "",
+        "### 何时 handoff（Action）",
+        "- 读 workspace / data、总结文件、**用户明确要** csv/xlsx/docx → document_specialist",
+        "- **长文**、邮件定稿、用户明确要 Word/docx/保存文案 → writer_specialist",
+        "- 统计分析、跑脚本、报表 → data_specialist",
+        "- 不确定时先追问一句，再 handoff",
+        "",
+        "### 复杂任务（2B）",
+        "- 仅多文件、多步分析+导出等：专员完成后可能 transfer_to_workspace_router",
+        "- 转回你时：简洁 Markdown 汇总，不重复全文",
+        "- **禁止**为短文/简单问答 handoff；禁止 handoff 后再转回的死循环",
+        "",
+        "### 简单任务（2A）",
+        "- handoff 后专员直接对用户回复，你不必再等转回",
+        "",
+        "可先 mentally 参考 Skills：output-defaults、export-formats（由专员 read_skill）。",
     ]
-    if document_specialist is not None:
-        lines.extend(
-            [
-                "1. 列出/读取/总结 workspace 文件，或把 data/ 下 JSON 导出为 CSV → transfer_to_document_specialist",
-                "2. 统计分析、跑脚本生成报表、批量数据处理（需 Docker 沙箱）→ transfer_to_data_specialist",
-                "3. 即使对话历史里出现过同类操作，新消息仍必须先转接，不能代劳",
-                "4. 仅简单问候可自行回复",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "1. 统计分析、报表、数据处理 → transfer_to_data_specialist",
-                "2. 文件读写已关闭（FILE_AGENT_ENABLED=false），请引导用户开启或只做数据分析",
-                "3. 仅简单问候可自行回复",
-            ]
-        )
+    if document_specialist is None:
+        lines.append("注意：FILE_AGENT_ENABLED=false，文件/写作专员不可用。")
     return "\n".join(lines)
 
 
@@ -51,5 +61,4 @@ workspace_router = Agent(
     input_guardrails=ROUTER_INPUT_GUARDRAILS if GUARDRAILS_ENABLED else [],
 )
 
-# 兼容旧 import 名称
 customer_service_router = workspace_router
