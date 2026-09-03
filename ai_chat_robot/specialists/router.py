@@ -14,7 +14,7 @@ from guardrails import (
     ROUTER_INPUT_GUARDRAILS,
     ROUTER_OUTPUT_GUARDRAILS,
 )
-from config.llm import flash_settings
+from adapters.llm_provider import flash_settings
 from config.settings import ROUTER_VERIFY_MAX_RETRIES
 from orchestrator.handoff_policy import can_router_dispatch_specialist
 

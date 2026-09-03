@@ -4,6 +4,8 @@
 
 第一轮应用层已落地在 `application/`：`ChatTurnService`、`ApprovalService` 和 `SessionService` 被 Web/CLI 入口复用。底层 `orchestrator/`、`services/` 路径暂时保留，作为兼容适配器。
 
+第二轮已落地 `adapters/`：`llm_provider.py` 负责 DeepSeek SDK 客户端，`agent_runtime.py` 负责 Agent `RunConfig` 与沙箱组装；`config/llm.py` 现在仅是兼容导出层。`orchestrator` 的 Runner 导出采用惰性加载，避免路由 Agent 初始化时的循环依赖。
+
 ## 1. 系统定位
 
 `ai_chat_robot` 是一个多 Agent 工作台：
@@ -177,3 +179,27 @@ config -> (无业务模块依赖)
 - 新的环境变量：`config/`，并同步 `.env.sandbox.example`。
 - 新的启动/清理/评估命令：`scripts/`。
 - 不要把业务逻辑继续添加到 `web_app.py`、`robot.py` 或 `config.llm`。
+## 9. 第三轮落地
+
+- `orchestrator/stream_runtime.py` 统一 Agent SDK 的新运行与状态恢复流程，集中处理 stream event、文本增量、handoff 和 React 步骤。
+- `orchestrator/approval_runtime.py` 集中处理审批记录、状态恢复、审批审计、产物发布和记忆刷新。
+- `orchestrator/runner.py` 只负责一轮用户请求的生命周期、重试、沙箱配额、guardrail 错误映射和最终输出整理；`run_streamed_turn`、`resume_from_state` 等旧名称仍作为兼容入口。
+
+新的依赖方向为：
+
+```text
+entrypoints -> runner -> stream_runtime / approval_runtime
+                         -> adapters + services + sandbox
+```
+
+新增运行时逻辑应优先放入上述专职模块，避免再次把 SDK 事件处理、审批持久化和业务生命周期混回一个文件。
+
+## Third-round extraction
+
+The third round keeps the public orchestrator imports stable while separating SDK stream handling (`orchestrator/stream_runtime.py`) from approval state and publication (`orchestrator/approval_runtime.py`). `runner.py` now coordinates one user-turn lifecycle, retries, sandbox slots, guardrail mapping, and output finalization.
+
+## Fourth-round capability boundary
+
+Agent definitions now consume tools through `capabilities/registry.py` instead of assembling dependencies from both `tools/` and `sandbox/`. The capability package exposes file, export, skill, and analytics operations; legacy modules remain compatibility facades while their implementations migrate incrementally.
+
+Sandbox lifecycle calls used by entrypoints and orchestration now go through `adapters/sandbox_runtime.py`. Docker, workspace synchronization, and artifact publication remain implementation details of the sandbox adapter.

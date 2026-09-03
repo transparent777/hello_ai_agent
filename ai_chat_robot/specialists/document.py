@@ -6,9 +6,9 @@ from agents import Agent
 
 from config.file_agent import FILE_AGENT_ENABLED
 from guardrails import GUARDRAILS_ENABLED, SPECIALIST_OUTPUT_GUARDRAILS
-from config.llm import pro_model, pro_settings
-from tools.file import ensure_workspace
-from tools.registry import DOCUMENT_TOOLS
+from adapters.llm_provider import pro_model, pro_settings
+from capabilities.files import ensure_workspace
+from capabilities.registry import DOCUMENT_TOOLS
 
 _REACT_SUFFIX = (
     "\n\n## 层级 ReAct（L2）\n"

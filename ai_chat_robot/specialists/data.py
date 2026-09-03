@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from agents import Agent
 
-from config.llm import pro_model, pro_settings, SANDBOX_AGENT_SUPPORTED
-from sandbox.analytics_tools import (
+from adapters.llm_provider import pro_model, pro_settings, SANDBOX_AGENT_SUPPORTED
+from capabilities.analytics import (
     run_order_analysis,
     run_pricing_simulation,
     run_sales_report,
@@ -15,7 +15,7 @@ from sandbox.config import (
     build_manifest,
     build_sandbox_capabilities,
 )
-from sandbox.runtime import ensure_workspace_synced, is_docker_available
+from adapters.sandbox_runtime import ensure_workspace_synced, is_docker_available
 from sandbox.settings import SANDBOX_ALLOW_LOCAL_FALLBACK
 
 

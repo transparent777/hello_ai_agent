@@ -3,5 +3,12 @@
 from application.approvals import ApprovalService
 from application.chat import ChatTurnService
 from application.sessions import SessionService
+from application.bootstrap import ApplicationServices, build_services
 
-__all__ = ["ApprovalService", "ChatTurnService", "SessionService"]
+__all__ = [
+    "ApprovalService",
+    "ApplicationServices",
+    "ChatTurnService",
+    "SessionService",
+    "build_services",
+]

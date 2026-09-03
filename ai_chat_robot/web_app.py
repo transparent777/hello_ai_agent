@@ -25,7 +25,9 @@ if str(_APP_DIR) not in sys.path:
 from agents import SQLiteSession
 from agents.exceptions import MaxTurnsExceeded
 
-from application import ApprovalService, ChatTurnService, SessionService
+from application import build_services
+from adapters.agent_runtime import build_run_config
+from adapters.llm_provider import DEEPSEEK_FLASH, DEEPSEEK_PRO
 from config.paths import DATA_DIR, PACKAGE_ROOT
 from config.file_agent import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
 from config.settings import SHOW_REACT_STEPS
@@ -33,13 +35,8 @@ from guardrails import GUARDRAILS_ENABLED
 from mcp_integration.runtime import mcp_status_summary
 from orchestrator.handoff_policy import sanitize_user_visible_output
 from orchestrator import (
-    DEEPSEEK_FLASH,
-    DEEPSEEK_PRO,
     SESSION_DB,
-    apply_approval_decision,
-    build_run_config,
     describe_interruptions,
-    handle_user_turn,
     restore_pending_approval,
 )
 from services.approval_store import PendingApprovalRecord, has_pending_approval
@@ -48,7 +45,7 @@ from specialists import workspace_router
 from sandbox.health import check_sandbox_health
 from sandbox.memory_sync import has_memory_summary
 from sandbox.metrics import get_metrics_summary
-from sandbox.runtime import (
+from adapters.sandbox_runtime import (
     analytics_backend_available,
     ensure_workspace_synced,
     is_docker_available,
@@ -58,9 +55,10 @@ from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP, SANDBOX_PERSIST_SE
 from sandbox.session_store import clear_persisted_session
 
 UI_DB = SESSION_DB
-session_service = SessionService(UI_DB)
-chat_service = ChatTurnService(handle_user_turn)
-approval_service = ApprovalService(apply_approval_decision)
+application_services = build_services(UI_DB)
+session_service = application_services.sessions
+chat_service = application_services.chat
+approval_service = application_services.approvals
 MODEL_SHORT = {
     DEEPSEEK_FLASH: "Flash · 快速",
     DEEPSEEK_PRO: "Pro · 深度",

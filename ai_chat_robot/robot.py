@@ -10,18 +10,17 @@ import asyncio
 
 from agents import SQLiteSession
 
-from application import ChatTurnService
+from application import build_services
+from adapters.agent_runtime import build_run_config
 from config.paths import DATA_DIR
 from config.settings import SESSION_ID, SHOW_REACT_STEPS
 from orchestrator import (
     SESSION_DB,
-    build_run_config,
-    handle_user_turn,
     resolve_interruptions,
 )
 from orchestrator.handoff_policy import sanitize_user_visible_output
 from sandbox.health import check_sandbox_health
-from sandbox.runtime import (
+from adapters.sandbox_runtime import (
     analytics_backend_available,
     ensure_workspace_synced,
     is_docker_available,
@@ -32,7 +31,8 @@ from services.approval_store import PendingApprovalRecord
 from services.react_trace import compact_summary
 from specialists import workspace_router
 
-chat_service = ChatTurnService(handle_user_turn)
+application_services = build_services()
+chat_service = application_services.chat
 
 
 async def chat_loop() -> None:
