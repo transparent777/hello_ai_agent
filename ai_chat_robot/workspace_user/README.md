@@ -1,13 +1,15 @@
-# 文件 Agent 工作区
+# workspace_user
 
-Agent 只能在此目录内 **列出 / 读取 / 写入** 文件（路径均相对于本目录）。
+Agent 可读写的工作区根目录（宿主机路径，默认 `ai_chat_robot/workspace_user/`）。
 
-示例：把 `demo/hello.txt` 交给 Agent 处理，或在聊天中说：
+## 示例用法
 
-> 导出商品清单为 CSV  
-> 导出订单清单到 exports/orders.csv  
-> 读取 data/products.json 统计品类
+在聊天中说：
 
-**CSV 说明**：导出文件使用 **UTF-8 BOM** 编码，Excel 双击应能正常显示中文。若仍乱码，在 Excel 用「数据 → 从文本/CSV」并选择 UTF-8。
+> 列出工作区文件  
+> 阅读 demo/hello.txt 并总结  
+> 把要点保存到 notes/summary.md  
 
-写入操作会触发 **人工审批**（与退款审批相同流程）。
+`notes/`、`exports/` 等子目录会在写入时自动创建。
+
+`data/` 下的 JSON 为沙箱示例数据，只读；在对话中用 `data/orders.json` 等形式访问。

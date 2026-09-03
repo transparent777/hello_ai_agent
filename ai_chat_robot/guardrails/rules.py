@@ -30,8 +30,8 @@ _INJECTION_PATTERNS = (
     r"ignore\s+(all\s+)?(previous|prior)\s+instructions",
     r"disregard\s+(all\s+)?(previous|prior)\s+instructions",
     r"system\s+prompt",
-    r"你现在是(?!.*客服)",
-    r"扮演(?!.*客服).*(黑客|管理员|root)",
+    r"你现在是(?!.*助手)",
+    r"扮演(?!.*助手).*(黑客|管理员|root)",
     r"jailbreak",
     r"<\s*/?\s*system\s*>",
 )
@@ -52,15 +52,11 @@ _OFF_TOPIC_PATTERNS = (
     r"写一篇论文|毕业论文",
 )
 
-_ECOMMERCE_HINTS = (
-    r"订单|商品|退款|物流|发货|签收|库存|价格|打折|报表|分析|键盘|鼠标",
-    r"客服|购买|售后|运单|tracking|order|product|refund",
-)
-
-_FILE_TASK_HINTS = (
-    r"文件|文件夹|目录|folder|file|读取|写入|保存|创建文件|列出|整理",
-    r"txt|csv|json|markdown|\.md|workspace_user|工作区",
-    r"导出|清单|excel|表格",
+_WORKSPACE_TASK_HINTS = (
+    r"文件|文件夹|目录|folder|file|读取|写入|保存|创建文件|列出|整理|总结|摘要",
+    r"txt|csv|json|markdown|\.md|workspace_user|工作区|data/",
+    r"导出|清单|excel|表格|报表|分析|统计|图表|处理|数据|dataset",
+    r"阅读|概括|归纳|笔记|notes|exports",
 )
 
 _SECRET_IN_OUTPUT = re.compile(
@@ -99,16 +95,12 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> str | None:
     return None
 
 
-def _has_ecommerce_hint(text: str) -> bool:
-    return _matches_any(text, _ECOMMERCE_HINTS) is not None
-
-
-def _has_file_task_hint(text: str) -> bool:
-    return _matches_any(text, _FILE_TASK_HINTS) is not None
+def _has_workspace_task_hint(text: str) -> bool:
+    return _matches_any(text, _WORKSPACE_TASK_HINTS) is not None
 
 
 def _has_router_allowed_topic(text: str) -> bool:
-    return _has_ecommerce_hint(text) or _has_file_task_hint(text)
+    return _has_workspace_task_hint(text)
 
 
 def _tripwire(
@@ -149,7 +141,7 @@ def block_prompt_injection(
     if hit:
         return _tripwire(
             reason=f"prompt_injection:{hit}",
-            user_message="检测到疑似提示注入，请直接描述您的电商问题（查订单、搜商品、退款等）。",
+            user_message="检测到疑似提示注入，请直接描述文件阅读、数据整理或报表需求。",
             guardrail_name="block_prompt_injection",
         )
     return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
@@ -170,7 +162,7 @@ def block_sensitive_exfiltration(
     if hit:
         return _tripwire(
             reason=f"exfiltration:{hit}",
-            user_message="无法协助获取密钥、凭证或批量导出敏感数据。如需订单帮助，请提供具体订单号。",
+            user_message="无法协助获取密钥、凭证或批量导出敏感数据。请说明具体文件或分析任务。",
             guardrail_name="block_sensitive_exfiltration",
         )
     return GuardrailFunctionOutput(tripwire_triggered=False, output_info=None)
@@ -195,8 +187,8 @@ def block_off_topic(
         return _tripwire(
             reason=f"off_topic:{hit}",
             user_message=(
-                "我是电商客服助手，可处理商品咨询、订单物流、退款、数据分析，"
-                "以及 workspace_user 工作区内的文件读写。请换个相关问题试试。"
+                "我是文件与数据处理助手，可阅读总结 workspace 内文件、"
+                "生成报表，或在沙箱中做统计分析。请换个相关问题试试。"
             ),
             guardrail_name="block_off_topic",
         )
@@ -313,7 +305,7 @@ def validate_file_tool_path(data: ToolInputGuardrailData) -> ToolGuardrailFuncti
 
     if tool_name == "write_file" and rel and is_data_virtual_path(rel):
         return ToolGuardrailFunctionOutput.reject_content(
-            message="data/ 为只读电商数据，不可写入。请使用 workspace_user 下路径。",
+            message="data/ 为只读示例数据，不可写入。请使用 workspace_user 下路径。",
             output_info={"check": "data_readonly"},
         )
 

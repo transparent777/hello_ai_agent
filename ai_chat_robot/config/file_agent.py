@@ -38,7 +38,7 @@ FILE_AGENT_MAX_LIST_ENTRIES = _env_int("FILE_AGENT_MAX_LIST_ENTRIES", 200)
 FILE_AGENT_PREVIEW_MAX_LINES = _env_int("FILE_AGENT_PREVIEW_MAX_LINES", 80)
 FILE_AGENT_PREVIEW_MAX_CHARS = _env_int("FILE_AGENT_PREVIEW_MAX_CHARS", 12000)
 
-# 电商演示数据（只读）；Agent 用 data/ 前缀访问，例如 data/products.json
+# 沙箱示例数据（只读）；Agent 用 data/ 前缀访问，例如 data/orders.json
 DATA_READ_ROOT = DATA_DIR.resolve()
 
 FILE_AGENT_BLOCKED_NAME_PATTERNS = (

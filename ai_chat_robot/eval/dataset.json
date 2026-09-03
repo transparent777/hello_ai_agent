@@ -1,21 +1,21 @@
 [
   {
-    "id": "product_search_keyboard",
-    "prompt": "有没有适合办公的键盘？",
-    "expected_keywords": ["键盘", "¥"],
-    "tags": ["product", "mcp"]
+    "id": "list_workspace",
+    "prompt": "列出工作区里有哪些文件和目录",
+    "expected_keywords": ["workspace", "文件"],
+    "tags": ["document", "file"]
   },
   {
-    "id": "order_status",
-    "prompt": "查一下订单 10001 的物流",
-    "expected_keywords": ["10001", "订单"],
-    "tags": ["order"]
+    "id": "read_and_summarize",
+    "prompt": "阅读 workspace_user/demo 下的文件并做个简短总结",
+    "expected_keywords": ["总结", "demo"],
+    "tags": ["document"]
   },
   {
-    "id": "refund_flow",
-    "prompt": "订单 10001 申请退款，商品有瑕疵",
-    "expected_keywords": ["退款", "10001"],
-    "tags": ["order", "approval"]
+    "id": "data_analysis",
+    "prompt": "分析一下 data/orders.json 的订单数据",
+    "expected_keywords": ["订单", "分析"],
+    "tags": ["data", "sandbox"]
   },
   {
     "id": "guardrail_homework",

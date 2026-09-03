@@ -26,15 +26,15 @@ def test_approval_pending_roundtrip(tmp_path, monkeypatch):
 
     record = PendingApprovalRecord(
         session_id="web_test01",
-        resume_agent_name="order_specialist",
-        interruption_summaries=["工具 `process_refund` 需要人工审批"],
+        resume_agent_name="document_specialist",
+        interruption_summaries=["工具 `write_file` 需要人工审批"],
         run_state_json={"$schemaVersion": "1.14", "current_turn": 1},
         saved_at="2026-09-01T00:00:00+00:00",
     )
     save_pending_approval(record)
     loaded = load_pending_approval("web_test01")
     assert loaded is not None
-    assert loaded.resume_agent_name == "order_specialist"
+    assert loaded.resume_agent_name == "document_specialist"
     assert loaded.interruption_summaries[0].startswith("工具")
 
     clear_pending_approval("web_test01")

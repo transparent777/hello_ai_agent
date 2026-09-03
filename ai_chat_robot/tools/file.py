@@ -1,4 +1,4 @@
-"""宿主机文件工具：workspace_user 可读写；data/ 前缀为电商数据只读区。"""
+"""宿主机文件工具：workspace_user 可读写；data/ 前缀为示例数据集只读区。"""
 
 from __future__ import annotations
 
@@ -269,7 +269,7 @@ def read_file_impl(relative_path: str) -> str:
 def write_file_impl(relative_path: str, content: str) -> str:
     """写入工作区内文本文件（覆盖）；不可写 data/。"""
     if is_data_virtual_path(relative_path):
-        return "data/ 为电商演示数据只读区，不可写入。请写入 workspace_user/ 下路径。"
+        return "data/ 为示例数据只读区，不可写入。请写入 workspace_user/ 下路径。"
 
     if len(content.encode("utf-8")) > FILE_AGENT_MAX_WRITE_BYTES:
         return (
@@ -368,7 +368,7 @@ def export_orders_csv_impl(relative_path: str = "exports/orders.csv") -> str:
 
 @function_tool(tool_input_guardrails=[validate_file_tool_path])
 def list_files(relative_dir: str = "") -> str:
-    """列出目录。relative_dir 为空时展示 workspace_user 与 data/；data/ 为只读商品订单数据。"""
+    """列出目录。relative_dir 为空时展示 workspace_user 与 data/；data/ 为只读示例数据。"""
     return list_files_impl(relative_dir)
 
 

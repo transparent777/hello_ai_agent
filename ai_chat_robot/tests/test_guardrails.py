@@ -32,8 +32,8 @@ def test_block_prompt_injection():
     assert out.output.tripwire_triggered is True
 
 
-def test_allow_ecommerce_query():
-    out = _run_input_guardrail(block_off_topic, "查一下订单 10001 物流")
+def test_allow_workspace_query():
+    out = _run_input_guardrail(block_off_topic, "列出工作区文件并总结 demo 目录")
     assert out.output.tripwire_triggered is False
 
 

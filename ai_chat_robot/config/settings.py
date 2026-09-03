@@ -21,4 +21,4 @@ def _env_bool(name: str, default: bool) -> bool:
 
 GUARDRAILS_ENABLED = _env_bool("GUARDRAILS_ENABLED", True)
 MAX_TURNS = int(os.getenv("AGENT_MAX_TURNS", "12"))
-SESSION_ID = os.getenv("ECOMMERCE_SESSION_ID", "ecommerce_customer_session")
+SESSION_ID = os.getenv("FILE_AGENT_SESSION_ID", "file_agent_session")

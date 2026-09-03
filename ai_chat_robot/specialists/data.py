@@ -1,4 +1,4 @@
-"""数据分析专员（Docker 沙箱或本机回退）。"""
+"""数据专员：统计分析、报表生成与脚本化处理（Docker 沙箱）。"""
 
 from __future__ import annotations
 
@@ -19,14 +19,14 @@ from sandbox.runtime import ensure_workspace_synced, is_docker_available
 from sandbox.settings import SANDBOX_ALLOW_LOCAL_FALLBACK
 
 
-def create_analytics_specialist() -> Agent:
+def create_data_specialist() -> Agent:
     shared_instructions = (
-        "你是电商数据分析专员。根据用户需求：\n"
-        "- 分析订单数据 → 跑订单分析\n"
-        "- 定价/打折模拟 → 跑定价脚本\n"
-        "- 生成报表 → 跑报表脚本\n"
-        "开始前阅读 repo/task.md；若存在 memories/memory_summary.md 可参考历史分析。\n"
-        "用中文总结关键数字，并说明结果文件位置（如 output/report.md）。"
+        "你是数据处理与报表专员。根据用户需求在沙箱中执行分析脚本：\n"
+        "- 数据集统计、分布分析 → run_order_analysis（读取 data/ 下示例 JSON）\n"
+        "- 参数化模拟（如折扣）→ run_pricing_simulation\n"
+        "- 生成 Markdown 报表 → run_sales_report\n"
+        "开始前阅读 repo/task.md；若存在 memories/memory_summary.md 可参考历史结论。\n"
+        "用中文解释关键数字，并说明产物路径（如 output/report.md、reports/）。"
     )
 
     if is_docker_available():
@@ -34,9 +34,9 @@ def create_analytics_specialist() -> Agent:
 
         ensure_workspace_synced()
         return SandboxAgent(
-            name="analytics_specialist",
+            name="data_specialist",
             handoff_description=(
-                "处理订单数据分析、定价模拟、销售报表生成（Docker 沙箱）。"
+                "统计分析、批量数据处理、生成报表（Docker 沙箱内跑 Python 脚本）。"
             ),
             instructions=f"{SANDBOX_INSTRUCTIONS}\n\n{shared_instructions}",
             model=pro_model,
@@ -47,13 +47,11 @@ def create_analytics_specialist() -> Agent:
 
     if SANDBOX_ALLOW_LOCAL_FALLBACK:
         return Agent(
-            name="analytics_specialist",
-            handoff_description=(
-                "处理订单数据分析、定价模拟、销售报表生成（本机脚本回退）。"
-            ),
+            name="data_specialist",
+            handoff_description="数据处理与报表（本机脚本回退，开发用）。",
             instructions=(
                 f"{shared_instructions}\n"
-                "使用工具 run_order_analysis / run_pricing_simulation / run_sales_report，"
+                "使用 run_order_analysis / run_pricing_simulation / run_sales_report，"
                 "不要假装已经执行脚本。"
             ),
             tools=[run_order_analysis, run_pricing_simulation, run_sales_report],
@@ -62,11 +60,11 @@ def create_analytics_specialist() -> Agent:
         )
 
     return Agent(
-        name="analytics_specialist",
-        handoff_description="数据分析需要 Docker 沙箱，当前环境不可用。",
+        name="data_specialist",
+        handoff_description="数据处理需要 Docker 沙箱，当前环境不可用。",
         instructions=(
-            "你是电商数据分析专员，但当前 Docker 沙箱不可用。\n"
-            "请明确告知用户：需要启动 Docker Desktop 后才能进行订单分析、定价模拟或报表生成。\n"
+            "你是数据处理专员，但当前 Docker 沙箱不可用。\n"
+            "请明确告知用户：需要启动 Docker Desktop 后才能跑统计分析或生成报表。\n"
             "不要假装已经执行脚本或编造分析结果。"
         ),
         model=pro_model,
@@ -74,4 +72,7 @@ def create_analytics_specialist() -> Agent:
     )
 
 
-analytics_specialist = create_analytics_specialist()
+data_specialist = create_data_specialist()
+
+# 兼容旧名称
+analytics_specialist = data_specialist

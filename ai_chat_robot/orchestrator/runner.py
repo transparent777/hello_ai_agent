@@ -34,7 +34,7 @@ from services.approval_store import (
     save_pending_approval,
 )
 from specialists.registry import AGENT_REGISTRY, get_agent_by_name
-from specialists.router import customer_service_router
+from specialists.router import workspace_router
 
 
 def _extract_delta(event: Any) -> str | None:
@@ -141,7 +141,7 @@ async def apply_approval_decision(
             interruptions = list(record.live_result.interruptions)
         else:
             state = await RunState.from_json(
-                customer_service_router,
+                workspace_router,
                 record.run_state_json,
             )
             interruptions = state.get_interruptions()
@@ -281,7 +281,7 @@ async def handle_user_turn(
         return None, None
 
     with trace(
-        "ecommerce_user_turn",
+        "workspace_user_turn",
         metadata={"session_id": session.session_id, "actor": actor or "user"},
     ):
         outcome = await run_with_mcp_lifecycle(servers, _execute_turn)

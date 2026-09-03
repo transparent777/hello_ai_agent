@@ -1,31 +1,28 @@
 # ai_chat_robot
 
-主代码目录，按职责分层（参考 multi-agent-ecommerce-system 的组织方式）。
+主代码目录：文件与数据处理多 Agent 系统。
 
-- **人类快速上手** → [../README.md](../README.md)
-- **AI / 开发者协作** → [../CLAUDE.md](../CLAUDE.md)
+## 目录
 
-## 目录一览
-
-| 目录 | 职责 |
+| 路径 | 说明 |
 |------|------|
-| `config/` | 路径、环境变量、LLM 配置 |
-| `specialists/` | 各业务 Agent（商品/订单/分析/文件/前台） |
-| `orchestrator/` | 运行循环、流式、审批恢复 |
-| `tools/` | function_tool 工具实现 |
-| `services/` | 审批持久化、UI 会话、Tracing |
-| `guardrails/` | 安全护栏 |
-| `data/` | 演示 JSON 数据 |
-| `sandbox/` | Docker 沙箱子系统 |
-| `mcp_integration/` / `mcp_servers/` | MCP |
+| `web_app.py` / `robot.py` | Streamlit / 终端入口 |
+| `config/` | 路径、环境变量、LLM、文件工作区配置 |
+| `specialists/` | `workspace_router`、`document_specialist`、`data_specialist` |
+| `orchestrator/` | 流式运行、审批恢复 |
+| `tools/file.py` | 工作区 `list_files` / `read_file` / `write_file` |
+| `services/` | 审批、UI 会话、Tracing |
+| `guardrails/` | 输入/输出/工具护栏 |
+| `workspace_user/` | 用户可读写目录 |
+| `data/` | 沙箱示例 JSON（只读，对话中用 `data/` 前缀） |
+| `sandbox/` | Docker 分析脚本与同步 |
 
-## 一键启动
+## 启动
 
 ```bash
 pip install -r requirements.txt
-python scripts/generate_catalog.py
-python sandbox/sync_workspace.py
+python scripts/init_workspace.py
 streamlit run web_app.py
 ```
 
-（需先在项目根 `../.env` 配置 `DEEPSEEK_API_KEY`）
+数据分析：`python scripts/generate_catalog.py && python sandbox/sync_workspace.py`（需 Docker）。

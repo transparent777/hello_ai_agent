@@ -1,35 +1,24 @@
-# 电商数据分析任务规格
+# 数据分析任务规格
 
-## 工作区路径（均相对于 `/workspace`）
+沙箱工作目录：`/workspace`（宿主机 `sandbox/workspace/`）。
 
-| 路径 | 权限 | 说明 |
-|------|------|------|
-| `repo/` | 只读 | 本文件与 `AGENTS.md` |
-| `data/` | 只读 | `orders.json`、`products.json` |
-| `scripts/` | 只读 | 分析脚本 |
-| `output/` | 可写 | 所有结果必须写在这里 |
-| `memories/` | 只读（若有） | 跨运行记忆 `memory_summary.md` |
+## 数据
 
-## 标准工作流
+- `data/orders.json` — 示例订单数据集（只读）
+- `data/products.json` — 示例商品目录（只读）
+- `output/` — 脚本输出目录
+- `repo/task.md` — 本说明
+
+## 可用脚本（`scripts/`）
 
 1. **订单分析** → `python scripts/analyze_orders.py`  
-   输出：`output/analysis_summary.json`
+   统计订单数、总金额、状态分布，写入 `output/analysis_summary.json`
+2. **定价模拟** → `python scripts/pricing.py --discount 0.9`  
+   可选 `--category` 筛选品类
+3. **报表生成** → `python scripts/generate_report.py`  
+   生成 `output/report.md`
 
-2. **定价模拟** → `python scripts/pricing.py --category <品类> --discount <系数>`  
-   输出：`output/pricing.json`  
-   示例：`python scripts/pricing.py --category 外设 --discount 0.9`
-
-3. **综合报表** → `python scripts/generate_report.py`  
-   输出：`output/report.md`（会调用上述脚本）
-
-## 输出要求
+## 回复要求
 
 - 用中文向用户总结关键数字（订单数、金额、状态分布等）。
-- 明确告知结果文件路径，例如 `output/report.md`。
-- 不要修改 `data/` 源文件；不要编造未执行脚本的数据。
-
-## 禁止事项
-
-- 非 `scripts/` 下的 Python 命令
-- 修改 `data/`、`scripts/`、`repo/`
-- 访问外网或下载资源
+- 说明产物路径（如 `output/report.md`，审查后会复制到 `reports/`）。

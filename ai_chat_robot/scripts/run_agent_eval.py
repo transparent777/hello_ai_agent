@@ -17,14 +17,14 @@ from agents.tracing import flush_traces
 
 from orchestrator import SESSION_DB, build_run_config, handle_user_turn
 from services.tracing import TRACING_EVAL_SAMPLES_PATH, configure_tracing
-from specialists import customer_service_router
+from specialists import workspace_router
 
 DATASET = _APP_DIR / "eval" / "dataset.json"
 
 
 def _score_case(text: str | None, case: dict) -> tuple[bool, str]:
     if case.get("expected_tripwire"):
-        ok = text is not None and ("护栏" in text or "客服" in text or "拦截" in text)
+        ok = text is not None and ("护栏" in text or "助手" in text or "拦截" in text)
         return ok, "guardrail_tripwire" if ok else f"expected tripwire, got: {text!r}"
 
     if not text:
@@ -42,7 +42,7 @@ async def _run_case(case: dict) -> dict:
     run_config = build_run_config(session_id=session_id)
 
     text, result = await handle_user_turn(
-        customer_service_router,
+        workspace_router,
         case["prompt"],
         session,
         run_config,

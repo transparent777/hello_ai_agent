@@ -1,5 +1,5 @@
 """
-电商 Agent 终端入口。
+文件与数据处理 Agent 终端入口。
 
 Agent 定义见 specialists/，运行循环见 orchestrator/。
 """
@@ -27,16 +27,16 @@ from sandbox.runtime import (
 )
 from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP
 from services.approval_store import PendingApprovalRecord
-from specialists import customer_service_router
+from specialists import workspace_router
 
 
 async def chat_loop() -> None:
     session = SQLiteSession(SESSION_ID, db_path=SESSION_DB)
     run_config = build_run_config(session_id=session.session_id)
 
-    print("电商客服 Agent 已启动（流式 + Session 半托管）")
+    print("文件与数据助手已启动（流式 + Session 半托管）")
     print(f"Session ID: {SESSION_ID}")
-    print(f"数据文件: {DATA_DIR}")
+    print(f"示例数据: {DATA_DIR}")
     print("输入 quit / exit / q 退出\n")
 
     while True:
@@ -47,9 +47,9 @@ async def chat_loop() -> None:
             print("再见！会话已保存在 sessions.db。")
             break
 
-        print("客服: ", end="", flush=True)
+        print("助手: ", end="", flush=True)
         text, result = await handle_user_turn(
-            customer_service_router,
+            workspace_router,
             user_input,
             session,
             run_config,
@@ -73,7 +73,7 @@ async def main() -> None:
             print("沙箱健康检查未通过:")
             for issue in health.issues:
                 print(f"  - {issue}")
-    print(f"电商客服 Agent 已启动 | 数据分析: {sandbox_mode_label()}")
+    print(f"文件与数据助手已启动 | 数据分析: {sandbox_mode_label()}")
     if not analytics_backend_available():
         print("提示: 数据分析需要 Docker。请启动 Docker Desktop 后重试。")
     await chat_loop()

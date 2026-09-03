@@ -1,5 +1,5 @@
 """
-电商 Agent Web 界面 — Streamlit 聊天页
+文件与数据处理 Agent — Streamlit 聊天界面
 
 启动：
     cd ai_chat_robot
@@ -49,7 +49,7 @@ from services.ui_session_store import (
     load_messages,
     prune_empty_sessions,
 )
-from specialists import customer_service_router
+from specialists import workspace_router
 from sandbox.health import check_sandbox_health
 from sandbox.memory_sync import has_memory_summary
 from sandbox.metrics import get_metrics_summary
@@ -69,16 +69,16 @@ MODEL_SHORT = {
 }
 
 QUICK_PROMPTS = [
-    "有没有适合办公的键盘？",
-    "查订单 10001 物流",
-    "导出商品清单为 CSV",
-    "分析一下订单数据",
-    "列出可访问的文件目录",
+    "列出工作区里有哪些文件",
+    "阅读并总结 demo 目录下的文本",
+    "把要点整理成 notes/summary.md",
+    "分析一下 data/orders.json 订单数据",
+    "生成一份销售分析报表",
 ]
 
 st.set_page_config(
-    page_title="电商智能客服",
-    page_icon="🛒",
+    page_title="文件与数据助手",
+    page_icon="📁",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -414,7 +414,7 @@ def _render_advanced_settings(current_id: str) -> None:
         data_dir = DATA_DIR
         ok = (data_dir / "products.json").exists() and (data_dir / "orders.json").exists()
         if not ok:
-            st.info("演示数据未生成：`python scripts/generate_catalog.py`")
+            st.info("沙箱示例数据未生成：`python scripts/generate_catalog.py`（仅数据分析需要）")
 
 
 def _render_sidebar() -> None:
@@ -502,7 +502,7 @@ def _render_quick_prompts() -> bool:
         """
         <div class="empty-wrap">
             <h3>有什么可以帮您？</h3>
-            <p>查商品、跟物流、读 data/ 全量 JSON，或让数据分析跑报表</p>
+            <p>阅读总结 workspace 文件，或在沙箱中统计分析、生成报表</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -571,7 +571,7 @@ def _execute_agent_turn(prompt: str) -> None:
         try:
             text, result = _run_async(
                 handle_user_turn(
-                    customer_service_router,
+                    workspace_router,
                     prompt,
                     st.session_state.agent_session,
                     st.session_state.run_config,
@@ -627,8 +627,8 @@ def _render_chat() -> None:
     st.markdown(
         """
         <div class="app-hero">
-            <h1>电商智能客服</h1>
-            <p>商品咨询 · 订单物流 · 数据文件 · 分析报表</p>
+            <h1>文件与数据助手</h1>
+            <p>文档阅读 · 内容总结 · 工作区写入 · 数据分析报表</p>
         </div>
         """,
         unsafe_allow_html=True,
