@@ -44,7 +44,8 @@ def _router_instructions() -> str:
         "- **禁止**为短文/简单问答 handoff；禁止 handoff 后再转回的死循环",
         "",
         "### 简单任务（2A）",
-        "- handoff 后专员直接对用户回复，你不必再等转回",
+        "- handoff 后**不要再替专员操作或重复转接**；专员直接对用户回复",
+        "- handoff 后禁止说「转接失败」「让我再转接」—— 一次 transfer 即可",
         "",
         "可先 mentally 参考 Skills：output-defaults、export-formats（由专员 read_skill）。",
     ]
