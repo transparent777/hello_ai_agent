@@ -1,5 +1,7 @@
 # ai_chat_robot
 
+架构地图与模块边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。新功能请先按该文档确定归属，再修改实现。
+
 主代码目录：文件与数据处理多 Agent 系统。
 
 ## 目录

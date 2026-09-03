@@ -25,6 +25,7 @@ if str(_APP_DIR) not in sys.path:
 from agents import SQLiteSession
 from agents.exceptions import MaxTurnsExceeded
 
+from application import ApprovalService, ChatTurnService, SessionService
 from config.paths import DATA_DIR, PACKAGE_ROOT
 from config.file_agent import FILE_AGENT_ENABLED, FILE_AGENT_WORKSPACE
 from config.settings import SHOW_REACT_STEPS
@@ -43,16 +44,6 @@ from orchestrator import (
 )
 from services.approval_store import PendingApprovalRecord, has_pending_approval
 from services.tracing import configure_tracing, get_recent_trace_count, tracing_status_summary
-from services.ui_session_store import (
-    append_message,
-    clear_all_ui_sessions,
-    clear_session_messages,
-    count_messages,
-    init_ui_store,
-    list_sessions,
-    load_messages,
-    prune_empty_sessions,
-)
 from specialists import workspace_router
 from sandbox.health import check_sandbox_health
 from sandbox.memory_sync import has_memory_summary
@@ -67,6 +58,9 @@ from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP, SANDBOX_PERSIST_SE
 from sandbox.session_store import clear_persisted_session
 
 UI_DB = SESSION_DB
+session_service = SessionService(UI_DB)
+chat_service = ChatTurnService(handle_user_turn)
+approval_service = ApprovalService(apply_approval_decision)
 MODEL_SHORT = {
     DEEPSEEK_FLASH: "Flash · 快速",
     DEEPSEEK_PRO: "Pro · 深度",
@@ -237,7 +231,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-init_ui_store(UI_DB)
+session_service.initialize()
 
 
 def _run_async(coro):
@@ -321,8 +315,8 @@ def _ensure_authenticated() -> bool:
 
 def _load_session_into_ui(session_id: str, *, bump_nav: bool = False) -> None:
     st.session_state.agent_session = SQLiteSession(session_id, db_path=SESSION_DB)
-    st.session_state.ui_messages = load_messages(
-        UI_DB, session_id, owner_id=st.session_state.web_owner_id
+    st.session_state.ui_messages = session_service.load_messages(
+        session_id, owner_id=st.session_state.web_owner_id
     )
     st.session_state.pending_approval = restore_pending_approval(session_id)
     if bump_nav:
@@ -359,7 +353,7 @@ def _resolve_initial_session_id() -> str:
 
 def _init_state() -> None:
     ensure_workspace_synced()
-    prune_empty_sessions(UI_DB)
+    session_service.prune_empty()
     configure_tracing()
     if "web_authenticated" not in st.session_state:
         st.session_state.web_authenticated = False
@@ -377,8 +371,7 @@ def _init_state() -> None:
     if "agent_session" not in st.session_state:
         _load_session_into_ui(_resolve_initial_session_id())
     if "ui_messages" not in st.session_state:
-        st.session_state.ui_messages = load_messages(
-            UI_DB,
+        st.session_state.ui_messages = session_service.load_messages(
             st.session_state.agent_session.session_id,
             owner_id=st.session_state.web_owner_id,
         )
@@ -405,8 +398,7 @@ def _append_and_persist(
     if meta_json:
         msg["meta_json"] = meta_json
     st.session_state.ui_messages.append(msg)
-    append_message(
-        UI_DB,
+    session_service.append_message(
         st.session_state.agent_session.session_id,
         role,
         content,
@@ -432,8 +424,8 @@ def _render_react_steps(steps: list[ReactStep]) -> None:
 
 def _is_ephemeral_session(session_id: str) -> bool:
     return (
-        count_messages(
-            UI_DB, session_id, owner_id=st.session_state.web_owner_id
+        session_service.count_messages(
+            session_id, owner_id=st.session_state.web_owner_id
         )
         == 0
     )
@@ -490,8 +482,8 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        sessions = list_sessions(
-            UI_DB, min_messages=1, owner_id=st.session_state.web_owner_id
+        sessions = session_service.list_sessions(
+            min_messages=1, owner_id=st.session_state.web_owner_id
         )
         session_ids = [str(s["session_id"]) for s in sessions]
         labels = {str(s["session_id"]): _session_label(s) for s in sessions}
@@ -552,8 +544,8 @@ def _render_sidebar() -> None:
 
         st.divider()
         if st.button("清空当前对话", use_container_width=True):
-            clear_session_messages(
-                UI_DB, current_id, owner_id=st.session_state.web_owner_id
+            session_service.clear_session(
+                current_id, owner_id=st.session_state.web_owner_id
             )
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
@@ -562,7 +554,7 @@ def _render_sidebar() -> None:
             st.rerun()
 
         if st.button("删除全部历史", use_container_width=True):
-            clear_all_ui_sessions(UI_DB, owner_id=st.session_state.web_owner_id)
+            session_service.clear_all(owner_id=st.session_state.web_owner_id)
             clear_persisted_session(current_id)
             st.session_state.ui_messages = []
             st.session_state.pending_approval = None
@@ -601,7 +593,7 @@ def _handle_approval(approved: bool) -> None:
 
     try:
         text, result = _run_async(
-            apply_approval_decision(
+            approval_service.decide(
                 pending,
                 st.session_state.agent_session,
                 st.session_state.run_config,
@@ -642,7 +634,7 @@ def _execute_agent_turn(prompt: str) -> None:
 
         try:
             text, result, react_steps = _run_async(
-                handle_user_turn(
+                chat_service.execute(
                     workspace_router,
                     prompt,
                     st.session_state.agent_session,

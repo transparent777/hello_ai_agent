@@ -10,6 +10,7 @@ import asyncio
 
 from agents import SQLiteSession
 
+from application import ChatTurnService
 from config.paths import DATA_DIR
 from config.settings import SESSION_ID, SHOW_REACT_STEPS
 from orchestrator import (
@@ -30,6 +31,8 @@ from sandbox.settings import SANDBOX_HEALTH_CHECK_ON_STARTUP
 from services.approval_store import PendingApprovalRecord
 from services.react_trace import compact_summary
 from specialists import workspace_router
+
+chat_service = ChatTurnService(handle_user_turn)
 
 
 async def chat_loop() -> None:
@@ -56,7 +59,7 @@ async def chat_loop() -> None:
             streamed.append(delta)
             print(delta, end="", flush=True)
 
-        text, result, react_steps = await handle_user_turn(
+        text, result, react_steps = await chat_service.execute(
             workspace_router,
             user_input,
             session,
