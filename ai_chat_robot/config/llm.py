@@ -51,6 +51,9 @@ deepseek_provider = OpenAIProvider(
     use_responses=False,
 )
 
+# DeepSeek 走 Chat Completions，不支持 SandboxAgent 的 hosted 工具
+SANDBOX_AGENT_SUPPORTED = False
+
 deepseek_client = AsyncOpenAI(
     api_key=api_key,
     base_url=DEEPSEEK_BASE_URL,

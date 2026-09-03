@@ -161,5 +161,16 @@ def clear_session_messages(db_path: Path, session_id: str) -> None:
         conn.commit()
 
 
+def clear_all_ui_sessions(db_path: Path) -> int:
+    """删除全部 Web 聊天历史，返回清除的会话数。"""
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM ui_chat_sessions").fetchone()
+        count = int(row["n"]) if row else 0
+        conn.execute("DELETE FROM ui_chat_messages")
+        conn.execute("DELETE FROM ui_chat_sessions")
+        conn.commit()
+    return count
+
+
 def delete_session(db_path: Path, session_id: str) -> None:
     clear_session_messages(db_path, session_id)

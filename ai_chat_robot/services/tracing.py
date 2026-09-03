@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agents.tracing import add_trace_processor, set_tracing_disabled
+from agents.tracing import set_trace_processors, set_tracing_disabled
 from agents.tracing.processor_interface import TracingProcessor
 from agents.tracing.processors import BatchTraceProcessor
 from agents.tracing.spans import Span
@@ -136,9 +136,13 @@ def configure_tracing() -> None:
             _configured = True
             return
 
-        add_trace_processor(BatchTraceProcessor(JsonlTracingExporter(TRACING_LOG_PATH)))
+        processors: list[TracingProcessor] = [
+            BatchTraceProcessor(JsonlTracingExporter(TRACING_LOG_PATH)),
+        ]
         if TRACING_EVAL_ENABLED:
-            add_trace_processor(EvalSampleProcessor(TRACING_EVAL_SAMPLES_PATH))
+            processors.append(EvalSampleProcessor(TRACING_EVAL_SAMPLES_PATH))
+        # 替换 SDK 默认的 OpenAI 云端 exporter，避免 OPENAI_API_KEY 触发 401 噪音
+        set_trace_processors(processors)
         _configured = True
 
 

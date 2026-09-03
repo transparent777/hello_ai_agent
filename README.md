@@ -76,10 +76,17 @@ streamlit run web_app.py
 ## 终端模式（可选）
 
 ```bash
+cd ai_chat_robot
 python robot.py
 ```
 
 输入 `q` 退出。写入文件在终端里用 `y/n` 确认审批。
+
+清空全部历史会话（含旧版电商记录）：
+
+```bash
+python scripts/reset_sessions.py
+```
 
 ---
 

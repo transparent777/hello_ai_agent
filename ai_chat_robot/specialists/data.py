@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agents import Agent
 
-from config.llm import pro_model, pro_settings
+from config.llm import pro_model, pro_settings, SANDBOX_AGENT_SUPPORTED
 from sandbox.analytics_tools import (
     run_order_analysis,
     run_pricing_simulation,
@@ -29,7 +29,7 @@ def create_data_specialist() -> Agent:
         "用中文解释关键数字，并说明产物路径（如 output/report.md、reports/）。"
     )
 
-    if is_docker_available():
+    if is_docker_available() and SANDBOX_AGENT_SUPPORTED:
         from agents.sandbox import SandboxAgent
 
         ensure_workspace_synced()
@@ -45,10 +45,12 @@ def create_data_specialist() -> Agent:
             capabilities=build_sandbox_capabilities(),
         )
 
-    if SANDBOX_ALLOW_LOCAL_FALLBACK:
+    if is_docker_available() or SANDBOX_ALLOW_LOCAL_FALLBACK:
         return Agent(
             name="data_specialist",
-            handoff_description="数据处理与报表（本机脚本回退，开发用）。",
+            handoff_description=(
+                "统计分析、批量数据处理、生成报表（Docker 沙箱或本机脚本）。"
+            ),
             instructions=(
                 f"{shared_instructions}\n"
                 "使用 run_order_analysis / run_pricing_simulation / run_sales_report，"

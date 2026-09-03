@@ -26,7 +26,7 @@ def _router_instructions() -> str:
     if document_specialist is not None:
         lines.extend(
             [
-                "1. 列出/读取/总结/写入 workspace 文件、导出清单 → transfer_to_document_specialist",
+                "1. 列出/读取/总结 workspace 文件，或把 data/ 下 JSON 导出为 CSV → transfer_to_document_specialist",
                 "2. 统计分析、跑脚本生成报表、批量数据处理（需 Docker 沙箱）→ transfer_to_data_specialist",
                 "3. 即使对话历史里出现过同类操作，新消息仍必须先转接，不能代劳",
                 "4. 仅简单问候可自行回复",

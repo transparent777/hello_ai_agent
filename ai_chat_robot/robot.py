@@ -63,6 +63,11 @@ async def chat_loop() -> None:
             text = result.final_output
         if text:
             print()
+        elif result is None or (
+            not getattr(result, "interruptions", None)
+            and not isinstance(result, PendingApprovalRecord)
+        ):
+            print("\n（助手未返回内容，请查看上方 [运行时失败] 提示）")
 
 
 async def main() -> None:

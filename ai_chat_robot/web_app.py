@@ -42,6 +42,7 @@ from services.approval_store import PendingApprovalRecord, has_pending_approval
 from services.tracing import configure_tracing, get_recent_trace_count, tracing_status_summary
 from services.ui_session_store import (
     append_message,
+    clear_all_ui_sessions,
     clear_session_messages,
     count_messages,
     init_ui_store,
@@ -334,9 +335,7 @@ def _create_new_session() -> None:
 
 
 def _resolve_initial_session_id() -> str:
-    sessions = list_sessions(UI_DB, min_messages=1)
-    if sessions:
-        return str(sessions[0]["session_id"])
+    """每次打开页面使用新会话，不自动恢复旧对话。"""
     return _new_session_id()
 
 
@@ -495,9 +494,17 @@ def _render_sidebar() -> None:
             _load_session_into_ui(_new_session_id(), bump_nav=True)
             st.rerun()
 
+        if st.button("删除全部历史", use_container_width=True):
+            clear_all_ui_sessions(UI_DB)
+            clear_persisted_session(current_id)
+            st.session_state.ui_messages = []
+            st.session_state.pending_approval = None
+            _load_session_into_ui(_new_session_id(), bump_nav=True)
+            st.rerun()
 
-def _render_quick_prompts() -> bool:
-    """渲染快捷问题；若用户点击则返回 True（已在本轮执行）。"""
+
+def _render_quick_prompts() -> None:
+    """空对话时展示快捷问题（点击后走统一的消息派发逻辑）。"""
     st.markdown(
         """
         <div class="empty-wrap">
@@ -511,12 +518,8 @@ def _render_quick_prompts() -> bool:
     for i, text in enumerate(QUICK_PROMPTS):
         with cols[i % 2]:
             if st.button(text, key=f"quick_{i}", use_container_width=True):
-                _append_and_persist("user", text)
-                with st.chat_message("user"):
-                    st.markdown(text)
-                _execute_agent_turn(text)
-                return True
-    return False
+                st.session_state.dispatch_prompt = text
+                st.rerun()
 
 
 def _handle_approval(approved: bool) -> None:
@@ -623,6 +626,14 @@ def _render_approval_card() -> None:
         st.rerun()
 
 
+def _dispatch_user_prompt(prompt: str) -> None:
+    """执行一轮用户消息（快捷问题或输入框共用）。"""
+    _append_and_persist("user", prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    _execute_agent_turn(prompt)
+
+
 def _render_chat() -> None:
     st.markdown(
         """
@@ -634,28 +645,31 @@ def _render_chat() -> None:
         unsafe_allow_html=True,
     )
 
+    dispatch = st.session_state.pop("dispatch_prompt", None)
+    if dispatch:
+        _dispatch_user_prompt(dispatch)
+        st.rerun()
+
     for msg in st.session_state.ui_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     if st.session_state.pending_approval:
         _render_approval_card()
-        return
 
     if not st.session_state.ui_messages:
-        quick_handled = _render_quick_prompts()
-        if quick_handled:
-            if st.session_state.pending_approval:
-                _render_approval_card()
-            return
+        _render_quick_prompts()
 
-    if prompt := st.chat_input("输入消息，Enter 发送"):
-        _append_and_persist("user", prompt)
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        _execute_agent_turn(prompt)
+    prompt = st.chat_input(
+        "输入消息，Enter 发送",
+        disabled=bool(st.session_state.pending_approval),
+    )
+    if prompt:
         if st.session_state.pending_approval:
-            _render_approval_card()
+            st.warning("请先处理上方审批，再继续输入。")
+            return
+        _dispatch_user_prompt(prompt)
+        st.rerun()
 
 
 def main() -> None:
