@@ -4,15 +4,6 @@
 
 **5 分钟跑起来 → 打开 Web → 发一条消息。**
 
----
-
-## 前置条件
-
-| 项目 | 必需？ | 说明 |
-|------|--------|------|
-| Python 3.10+ | ✅ | |
-| [DeepSeek API Key](https://platform.deepseek.com/api_keys) | ✅ | 写入 `.env` |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 数据分析需要 | 仅读文件/总结不需要 |
 
 ---
 
@@ -36,13 +27,7 @@ DEEPSEEK_API_KEY=sk-你的密钥
 WEB_APP_API_KEY=随便设一个字符串
 ```
 
-### ③ 初始化工作区（可选示例数据）
 
-```bash
-python scripts/init_workspace.py
-python scripts/generate_catalog.py   # 沙箱示例 JSON，可选
-python sandbox/sync_workspace.py     # 数据分析前执行
-```
 
 ### ④ 启动 Web
 
@@ -50,28 +35,20 @@ python sandbox/sync_workspace.py     # 数据分析前执行
 streamlit run web_app.py
 ```
 
-浏览器打开 **http://localhost:8501**（若端口占用可改用 `8502`）。
+浏览器打开 **[http://localhost:8501](http://localhost:8501)**（若端口占用可改用 `8502`）。
 
 > 改代码后需**重启 Streamlit** 才能生效。
 
 ---
 
-## 试一试
 
-在聊天框输入：
 
-| 你说 | 会发生什么 |
-|------|------------|
-| 列出工作区里有哪些文件 | 转文档专员，浏览 `workspace_user/` |
-| 阅读并总结 demo 下的文本 | 转文档专员，`read_file` 后中文摘要 |
-| 把要点写入 notes/summary.md | 触发**人工审批**后写入工作区 |
-| 分析一下 data/orders.json | 转数据专员，Docker 沙箱跑脚本 |
-| 生成一份销售分析报表 | 沙箱执行 `generate_report.py` |
-| 帮我做数学题 | 被**输入护栏**拦截 |
 
 侧边栏：**＋ 新对话**、切换历史、选 Flash/Pro 模型。运维细节在「高级设置」里。
 
 ---
+
+
 
 ## 终端模式（可选）
 
@@ -82,6 +59,8 @@ python robot.py
 输入 `q` 退出。写入文件在终端里用 `y/n` 确认审批。
 
 ---
+
+
 
 ## 项目结构
 
@@ -105,16 +84,6 @@ ai agent/
     └── sandbox/           ← Docker 沙箱与分析脚本
 ```
 
-### 仓库里有什么、没有什么
-
-| 路径 | 是否入库 | 说明 |
-|------|----------|------|
-| `ai_chat_robot/` | ✅ | 文件与数据 Agent 主项目 |
-| `README.md`、`CLAUDE.md` | ✅ | 上手与协作文档 |
-| `openai_start/` 等 | ❌ | 本地学习目录，已 `.gitignore` |
-
----
-
 ## 常用命令
 
 在 `ai_chat_robot/` 目录下执行：
@@ -128,6 +97,8 @@ python sandbox/scripts/analyze_orders.py
 
 ---
 
+
+
 ## 架构（一图流）
 
 ```
@@ -138,28 +109,15 @@ workspace_router（前台，只分流）
     └→ data_specialist       统计/报表 · Pro · Docker 沙箱
 ```
 
-### 工作区
 
-- 默认：`ai_chat_robot/workspace_user/`（可用 `FILE_AGENT_WORKSPACE` 改路径）
-- 工具：`list_files`、`read_file`、`write_file`（写入需人工审批）
-- 只读示例数据：对话中用 `data/` 前缀访问 `data/*.json`
-- 关闭文件能力：`FILE_AGENT_ENABLED=false`
 
----
 
-## 常见问题
-
-| 现象 | 处理 |
-|------|------|
-| 页面报错 / 改了代码没变化 | 停掉旧进程，重新 `streamlit run web_app.py` |
-| 数据分析没反应 | 启动 Docker Desktop，`docker version` 无报错 |
-| 沙箱无数据 | `python scripts/generate_catalog.py` 后 `python sandbox/sync_workspace.py` |
-| 没有审批按钮 | 要说「写入文件」「保存到 notes/」类话术 |
-| 登录页要密钥 | 填 `.env` 里的 `WEB_APP_API_KEY` |
 
 更多环境变量见 `ai_chat_robot/.env.sandbox.example`。
 
 ---
+
+
 
 ## 延伸阅读
 
@@ -167,3 +125,4 @@ workspace_router（前台，只分流）
 - AI 协作上下文：`CLAUDE.md`
 - [OpenAI Agents SDK 文档](https://openai.github.io/openai-agents-python/)
 - [DeepSeek API](https://api-docs.deepseek.com/)
+
