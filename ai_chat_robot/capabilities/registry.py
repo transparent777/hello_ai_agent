@@ -13,13 +13,17 @@ from capabilities.files import (
     read_file,
     write_file,
 )
+from capabilities.rag import retrieve_knowledge_base
 from capabilities.skills import list_skills, read_skill
 
 ROUTER_TOOLS: list = []
 
+RAG_TOOLS = [retrieve_knowledge_base]
+
 DOCUMENT_TOOLS = [
     list_skills,
     read_skill,
+    retrieve_knowledge_base,
     list_files,
     read_file,
     export_products_csv,
@@ -33,6 +37,7 @@ DOCUMENT_TOOLS = [
 WRITER_TOOLS = [
     list_skills,
     read_skill,
+    retrieve_knowledge_base,
     read_file,
     export_docx,
     write_file,
@@ -47,6 +52,7 @@ ANALYTICS_TOOLS = [
 __all__ = [
     "ANALYTICS_TOOLS",
     "DOCUMENT_TOOLS",
+    "RAG_TOOLS",
     "ROUTER_TOOLS",
     "WRITER_TOOLS",
 ]

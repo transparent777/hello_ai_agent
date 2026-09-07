@@ -35,6 +35,8 @@ def create_document_specialist() -> Agent | None:
             "你是文档与文件专员（L2）。\n"
             f"工作区：{workspace_label}；只读：data/\n"
             "阅读/总结：可直接回复。\n"
+            "当用户问项目说明、学习笔记、手册/政策类问题时，优先调用 retrieve_knowledge_base 检索知识库，"
+            "回答时注明引用来源。\n"
             "导出任务：export_* → transfer_to_workspace_router（验收摘要）。\n"
             + _REACT_SUFFIX
         ),
