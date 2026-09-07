@@ -6,6 +6,10 @@ import re
 
 from config.settings import ROUTER_VERIFY_MAX_RETRIES
 from orchestrator.turn_state import get_turn_state
+from rag.router_hints import (
+    build_knowledge_base_router_hint,
+    detect_knowledge_base_intent,
+)
 from services.react_trace import ReactStep
 
 _DELIVERABLE_PATTERNS = (
@@ -45,9 +49,14 @@ def detect_deliverable_intent(text: str) -> bool:
 
 
 def prepare_router_input(user_input: str) -> str:
+    hints: list[str] = []
+    if detect_knowledge_base_intent(user_input):
+        hints.append(build_knowledge_base_router_hint())
     if detect_deliverable_intent(user_input):
-        return _DELIVERABLE_HINT + user_input
-    return user_input
+        hints.append(_DELIVERABLE_HINT)
+    if not hints:
+        return user_input
+    return "".join(hints) + user_input
 
 
 def can_router_dispatch_specialist(

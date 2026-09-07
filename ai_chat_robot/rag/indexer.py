@@ -9,7 +9,12 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
-from rag.config import DEFAULT_EMBED_MODEL, KNOWLEDGE_DIR, STORAGE_DIR
+from rag.config import (
+    DEFAULT_EMBED_MODEL,
+    KNOWLEDGE_DIR,
+    STORAGE_DIR,
+    SUPPORTED_EXTENSIONS,
+)
 
 
 def _configure_settings(embed_model_name: str = DEFAULT_EMBED_MODEL) -> None:
@@ -17,34 +22,39 @@ def _configure_settings(embed_model_name: str = DEFAULT_EMBED_MODEL) -> None:
     Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=64)
 
 
+def _list_knowledge_files(knowledge_dir: Path) -> list[Path]:
+    allowed = {ext.lower() for ext in SUPPORTED_EXTENSIONS}
+    return [
+        p
+        for p in knowledge_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in allowed
+    ]
+
+
 def build_index(
     knowledge_dir: Path | None = None,
     storage_dir: Path | None = None,
     embed_model_name: str = DEFAULT_EMBED_MODEL,
 ) -> VectorStoreIndex:
-    """从 knowledge_dir 读取文档并写入 storage_dir。"""
+    """从 knowledge_dir 读取文档并写入 storage_dir（含 PDF）。"""
     knowledge_dir = knowledge_dir or KNOWLEDGE_DIR
     storage_dir = storage_dir or STORAGE_DIR
 
     if not knowledge_dir.is_dir():
         raise FileNotFoundError(f"知识库目录不存在: {knowledge_dir}")
 
-    files = [
-        p
-        for p in knowledge_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in {".md", ".txt", ".json"}
-    ]
+    files = _list_knowledge_files(knowledge_dir)
     if not files:
+        ext_list = " / ".join(SUPPORTED_EXTENSIONS)
         raise FileNotFoundError(
-            f"知识库目录为空或无可索引文件: {knowledge_dir} "
-            "(支持 .md / .txt / .json)"
+            f"知识库目录为空或无可索引文件: {knowledge_dir} (支持 {ext_list})"
         )
 
     _configure_settings(embed_model_name)
     documents = SimpleDirectoryReader(
         input_dir=str(knowledge_dir),
         recursive=True,
-        required_exts=[".md", ".txt", ".json"],
+        required_exts=list(SUPPORTED_EXTENSIONS),
     ).load_data()
 
     index = VectorStoreIndex.from_documents(documents, show_progress=True)

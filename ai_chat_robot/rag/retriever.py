@@ -1,4 +1,4 @@
-"""RAG 检索：返回带引用来源的文本片段。"""
+"""RAG 检索：混合检索 + 带引用来源的输出。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ from functools import lru_cache
 
 from llama_index.core import VectorStoreIndex
 
+from config.settings import RAG_HYBRID_ENABLED
 from rag.config import DEFAULT_TOP_K
+from rag.hybrid import hybrid_retrieve
 from rag.indexer import load_index
 
 
@@ -19,7 +21,12 @@ def format_retrieval_results(nodes_with_scores: list, top_k: int) -> str:
     if not nodes_with_scores:
         return "未检索到相关内容。请尝试换关键词，或确认知识库已索引。"
 
-    lines = [f"检索到 {min(len(nodes_with_scores), top_k)} 条相关片段：", ""]
+    mode = "混合检索(BM25+向量)" if RAG_HYBRID_ENABLED else "向量检索"
+    lines = [
+        f"检索模式: {mode}",
+        f"检索到 {min(len(nodes_with_scores), top_k)} 条相关片段：",
+        "",
+    ]
     for rank, item in enumerate(nodes_with_scores[:top_k], start=1):
         node = item.node
         score = item.score
@@ -42,8 +49,11 @@ def retrieve_knowledge_base_impl(query: str, top_k: int = DEFAULT_TOP_K) -> str:
     except FileNotFoundError as exc:
         return str(exc)
 
-    retriever = index.as_retriever(similarity_top_k=top_k)
-    nodes = retriever.retrieve(query)
+    if RAG_HYBRID_ENABLED:
+        nodes = hybrid_retrieve(index, query, top_k=top_k)
+    else:
+        nodes = index.as_retriever(similarity_top_k=top_k).retrieve(query)
+
     return format_retrieval_results(nodes, top_k=top_k)
 
 
