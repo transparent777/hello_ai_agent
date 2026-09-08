@@ -5,7 +5,6 @@ from __future__ import annotations
 from agents import function_tool
 
 from config.settings import RAG_ENABLED, RAG_TOP_K
-from rag.retriever import retrieve_knowledge_base_impl
 
 
 @function_tool
@@ -18,6 +17,10 @@ def retrieve_knowledge_base(query: str, top_k: int = RAG_TOP_K) -> str:
     """
     if not RAG_ENABLED:
         return "RAG 已关闭（RAG_ENABLED=false）。"
+    # LlamaIndex/BM25 are expensive optional imports. Keep normal chat startup
+    # independent from their platform-specific initialization.
+    from rag.retriever import retrieve_knowledge_base_impl
+
     safe_top_k = max(1, min(int(top_k), 8))
     return retrieve_knowledge_base_impl(query=query, top_k=safe_top_k)
 

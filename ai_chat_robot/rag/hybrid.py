@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+from io import StringIO
+
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeWithScore
-from llama_index.retrievers.bm25 import BM25Retriever
+
+# bm25s prints a Windows resource-module notice during import instead of using
+# the warnings API. It has no effect on retrieval and should not reach the UI.
+with redirect_stdout(StringIO()):
+    from llama_index.retrievers.bm25 import BM25Retriever
 
 
 def reciprocal_rank_fusion(

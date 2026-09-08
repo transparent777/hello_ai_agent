@@ -48,7 +48,7 @@ class StreamGate:
 
     def set_agent(self, agent_name: str) -> None:
         self._agent_name = agent_name
-        if self.deliverable_task and is_specialist_agent(agent_name):
+        if is_specialist_agent(agent_name):
             self._specialist_active = True
         elif is_router_agent(agent_name):
             self._specialist_active = False
@@ -63,9 +63,9 @@ class StreamGate:
     def emit(self, delta: str) -> str | None:
         if not delta:
             return None
-        if self.deliverable_task and self._specialist_active:
+        if self._specialist_active:
             return None
-        if self.deliverable_task and not is_router_agent(self._agent_name):
+        if not is_router_agent(self._agent_name):
             return None
         cleaned = self._sanitizer.feed(delta)
         if cleaned and _is_leakage(cleaned):
@@ -73,6 +73,8 @@ class StreamGate:
         return cleaned or None
 
     def flush(self) -> str | None:
+        if self._specialist_active or not is_router_agent(self._agent_name):
+            return None
         cleaned = self._sanitizer.flush()
         if cleaned and _is_leakage(cleaned):
             return None

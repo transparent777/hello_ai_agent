@@ -9,6 +9,7 @@ _APP_DIR = Path(__file__).resolve().parent.parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
 
+import rag  # noqa: F401 - installs narrowly scoped third-party warning filter
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from rag.hybrid import reciprocal_rank_fusion

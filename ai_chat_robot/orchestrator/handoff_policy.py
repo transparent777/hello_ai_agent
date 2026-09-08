@@ -28,7 +28,19 @@ _FAILURE_NARRATION = (
     r"handoff.*(?:fail|失败)",
 )
 
+_INLINE_MONOLOGUE = re.compile(
+    r"(?<![A-Za-z])(?:I need to|Let me|Now let me|I'll |I will |"
+    r"I'm going to|handle this docx)\b[^\r\n]*",
+    re.IGNORECASE,
+)
 _ENGLISH_LINE = re.compile(r"^[A-Za-z0-9\s,'\"`.:;!?\-–—()]+$")
+_ENGLISH_NARRATION_PREFIXES = (
+    "based on ",
+    "the docx ",
+    "the document ",
+    "here is my ",
+    "since docx ",
+)
 
 _ROUTER_AGENT_NAMES = frozenset({"workspace_router", "customer_service_router"})
 
@@ -112,7 +124,16 @@ def _is_mostly_english(line: str) -> bool:
     if not line or len(line) < 12:
         return False
     ascii_chars = sum(1 for ch in line if ord(ch) < 128)
-    return ascii_chars / len(line) > 0.85 and bool(_ENGLISH_LINE.match(line))
+    latin_chars = sum(1 for ch in line if ch.isascii() and ch.isalpha())
+    cjk_chars = sum(1 for ch in line if "\u3400" <= ch <= "\u9fff")
+    if cjk_chars == 0:
+        return ascii_chars / len(line) > 0.85 and bool(_ENGLISH_LINE.match(line))
+    normalized = line.lstrip("#>*- ").casefold()
+    return (
+        latin_chars >= 12
+        and latin_chars > cjk_chars * 2
+        and normalized.startswith(_ENGLISH_NARRATION_PREFIXES)
+    )
 
 
 _DSML_BLOCK = re.compile(
@@ -127,12 +148,7 @@ def sanitize_user_visible_output(text: str) -> str:
         return text
 
     cleaned = _DSML_BLOCK.sub("", text)
-    cleaned = re.sub(
-        r"(?:^|\n)(?:I need to|Let me|Now let me|I'll |I will |I'm going to|handle this docx)[^\n]*",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
+    cleaned = _INLINE_MONOLOGUE.sub("", cleaned)
     cleaned = sanitize_router_output(cleaned)
     return cleaned or ""
 
