@@ -49,14 +49,16 @@ class SessionService:
         content: str,
         *,
         meta_json: str | None = None,
+        message_id: str | None = None,
         owner_id: str | None = None,
-    ) -> None:
-        append_message(
+    ) -> bool:
+        return append_message(
             self.db_path,
             session_id,
             role,
             content,
             meta_json=meta_json,
+            message_id=message_id,
             owner_id=owner_id,
         )
 

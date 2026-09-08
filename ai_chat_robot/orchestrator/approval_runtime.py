@@ -17,6 +17,7 @@ from services.approval_store import (
     clear_pending_approval,
     save_pending_approval,
 )
+from services.stream_filter import StreamGate
 from specialists.registry import get_agent_by_name
 from specialists.router import workspace_router
 
@@ -79,6 +80,7 @@ async def apply_approval_decision(
         session,
         run_config,
         on_delta=on_delta,
+        stream_gate=StreamGate(deliverable_task=True),
     )
     persist_sandbox_session(session.session_id, result)
     if result.interruptions:

@@ -59,13 +59,19 @@ async def chat_loop() -> None:
             streamed.append(delta)
             print(delta, end="", flush=True)
 
-        text, result, react_steps = await chat_service.execute(
-            workspace_router,
-            user_input,
-            session,
-            run_config,
-            on_delta=on_delta,
-        )
+        try:
+            text, result, react_steps = await chat_service.execute(
+                workspace_router,
+                user_input,
+                session,
+                run_config,
+                on_delta=on_delta,
+            )
+        except Exception as exc:
+            if streamed:
+                print()
+            print(f"运行失败：{type(exc).__name__}: {exc}")
+            continue
 
         clean_stream = sanitize_user_visible_output("".join(streamed))
         final_text = sanitize_user_visible_output(text or "")

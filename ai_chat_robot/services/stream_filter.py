@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
-import re
-
 from config.agent_mode import is_router_agent
 
-_DSML_BLOCK = re.compile(
-    r"<｜｜DSML｜｜[\s\S]*?(?:</｜｜DSML｜｜tool_calls>|$)",
-    re.IGNORECASE,
+_DSML_OPEN_MARKERS = (
+    "<｜｜DSML｜｜",
+    "<||DSML||",
 )
-_DSML_OPEN = re.compile(r"<｜｜DSML｜｜", re.IGNORECASE)
-_ENGLISH_MONOLOGUE = re.compile(
-    r"(?:^|\n)(?:I need to|Let me|Now let me|I'll |I will |I'm going to)[^\n]*",
-    re.IGNORECASE,
+_DSML_CLOSE_MARKERS = (
+    "</｜｜DSML｜｜tool_calls>",
+    "</||DSML||tool_calls>",
 )
-_ENGLISH_CHUNK = re.compile(
-    r"(I need to|Let me |Now let me|I'll |I will |I'm going to|handle this docx)",
-    re.IGNORECASE,
+_MONOLOGUE_PREFIXES = tuple(
+    prefix.casefold()
+    for prefix in (
+        "I need to",
+        "Let me",
+        "Now let me",
+        "I'll ",
+        "I will ",
+        "I'm going to",
+        "handle this docx",
+    )
 )
 
 _ROUTER_NAMES = frozenset({"workspace_router", "customer_service_router"})
@@ -58,8 +63,6 @@ class StreamGate:
     def emit(self, delta: str) -> str | None:
         if not delta:
             return None
-        if _is_leakage(delta):
-            return None
         if self.deliverable_task and self._specialist_active:
             return None
         if self.deliverable_task and not is_router_agent(self._agent_name):
@@ -77,49 +80,121 @@ class StreamGate:
 
 
 def _is_leakage(text: str) -> bool:
-    if _DSML_OPEN.search(text):
+    if any(marker.casefold() in text.casefold() for marker in _DSML_OPEN_MARKERS):
         return True
     if "transfer_to_" in text or "invoke name=" in text:
         return True
     if "｜DSML｜" in text:
         return True
-    if _ENGLISH_CHUNK.search(text):
+    lowered = text.lstrip().casefold()
+    if any(lowered.startswith(prefix) for prefix in _MONOLOGUE_PREFIXES):
         return True
     return False
 
 
 class DeltaSanitizer:
-    """增量剔除 DSML / 英文独白片段。"""
+    """Strip control blocks and monologue lines across arbitrary chunk boundaries."""
 
     def __init__(self) -> None:
-        self._pending = ""
+        self._control_pending = ""
+        self._in_control_block = False
+        self._line_mode = "checking"
+        self._line_prefix = ""
 
     def feed(self, chunk: str) -> str:
-        self._pending += chunk
-        return self._drain(allow_partial=False)
+        visible = self._strip_control_blocks(chunk, final=False)
+        return self._strip_monologue_lines(visible, final=False)
 
     def flush(self) -> str:
-        return self._drain(allow_partial=True)
+        visible = self._strip_control_blocks("", final=True)
+        return self._strip_monologue_lines(visible, final=True)
 
-    def _drain(self, *, allow_partial: bool) -> str:
-        text = self._pending
-        if not text:
-            return ""
+    def _strip_control_blocks(self, chunk: str, *, final: bool) -> str:
+        text = self._control_pending + chunk
+        self._control_pending = ""
+        output: list[str] = []
 
-        text = _DSML_BLOCK.sub("", text)
-        text = _ENGLISH_MONOLOGUE.sub("", text)
+        while text:
+            if self._in_control_block:
+                found = _first_marker(text, _DSML_CLOSE_MARKERS)
+                if found is None:
+                    if not final:
+                        keep = _marker_prefix_length(text, _DSML_CLOSE_MARKERS)
+                        if keep:
+                            self._control_pending = text[-keep:]
+                    return "".join(output)
+                index, marker = found
+                text = text[index + len(marker) :]
+                self._in_control_block = False
+                continue
 
-        if _DSML_OPEN.search(text):
-            cut = _DSML_OPEN.search(text)
-            if cut:
-                self._pending = text[cut.start() :]
-                emitted = text[: cut.start()]
-                return emitted if allow_partial or not self._pending else emitted
-            if not allow_partial:
-                self._pending = text
-                return ""
-            self._pending = ""
-            return ""
+            found = _first_marker(text, _DSML_OPEN_MARKERS)
+            if found is not None:
+                index, marker = found
+                output.append(text[:index])
+                text = text[index + len(marker) :]
+                self._in_control_block = True
+                continue
 
-        self._pending = ""
-        return text
+            keep = 0 if final else _marker_prefix_length(text, _DSML_OPEN_MARKERS)
+            visible_end = len(text) - keep
+            output.append(text[:visible_end])
+            self._control_pending = text[visible_end:]
+            break
+
+        if final:
+            self._control_pending = ""
+        return "".join(output)
+
+    def _strip_monologue_lines(self, text: str, *, final: bool) -> str:
+        output: list[str] = []
+        for char in text:
+            if self._line_mode == "visible":
+                output.append(char)
+                if char == "\n":
+                    self._line_mode = "checking"
+                continue
+
+            if self._line_mode == "hidden":
+                if char == "\n":
+                    output.append(char)
+                    self._line_mode = "checking"
+                continue
+
+            self._line_prefix += char
+            candidate = self._line_prefix.lstrip().casefold()
+            if char == "\n":
+                output.append(self._line_prefix)
+                self._line_prefix = ""
+                self._line_mode = "checking"
+            elif any(candidate.startswith(prefix) for prefix in _MONOLOGUE_PREFIXES):
+                self._line_prefix = ""
+                self._line_mode = "hidden"
+            elif any(prefix.startswith(candidate) for prefix in _MONOLOGUE_PREFIXES):
+                continue
+            else:
+                output.append(self._line_prefix)
+                self._line_prefix = ""
+                self._line_mode = "visible"
+
+        if final:
+            if self._line_mode == "checking":
+                output.append(self._line_prefix)
+            self._line_prefix = ""
+            self._line_mode = "checking"
+        return "".join(output)
+
+
+def _first_marker(text: str, markers: tuple[str, ...]) -> tuple[int, str] | None:
+    matches = ((text.find(marker), marker) for marker in markers)
+    found = [(index, marker) for index, marker in matches if index >= 0]
+    return min(found, key=lambda item: item[0]) if found else None
+
+
+def _marker_prefix_length(text: str, markers: tuple[str, ...]) -> int:
+    max_size = min(len(text), max(len(marker) for marker in markers) - 1)
+    for size in range(max_size, 0, -1):
+        suffix = text[-size:]
+        if any(marker.startswith(suffix) for marker in markers):
+            return size
+    return 0

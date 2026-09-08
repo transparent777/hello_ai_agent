@@ -91,6 +91,8 @@ async def run(
     collector = react_collector or ReactStepCollector(
         initial_agent=getattr(agent, "name", "workspace_router")
     )
+    if stream_gate is not None:
+        stream_gate.set_agent(getattr(agent, "name", "workspace_router"))
     stream = Runner.run_streamed(
         agent,
         input_or_state,

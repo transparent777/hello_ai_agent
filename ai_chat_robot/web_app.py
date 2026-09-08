@@ -388,21 +388,26 @@ def _append_and_persist(
     content: str,
     *,
     react_steps: list[ReactStep] | None = None,
-) -> None:
+    message_id: str | None = None,
+) -> bool:
     meta_json = None
     if react_steps:
         meta_json = steps_to_json(react_steps)
-    msg: dict = {"role": role, "content": content}
-    if meta_json:
-        msg["meta_json"] = meta_json
-    st.session_state.ui_messages.append(msg)
-    session_service.append_message(
+    inserted = session_service.append_message(
         st.session_state.agent_session.session_id,
         role,
         content,
         meta_json=meta_json,
+        message_id=message_id,
         owner_id=st.session_state.web_owner_id,
     )
+    if not inserted:
+        return False
+    msg: dict = {"role": role, "content": content}
+    if meta_json:
+        msg["meta_json"] = meta_json
+    st.session_state.ui_messages.append(msg)
+    return True
 
 
 def _render_react_steps(steps: list[ReactStep]) -> None:
@@ -575,7 +580,10 @@ def _render_quick_prompts() -> None:
     for i, text in enumerate(QUICK_PROMPTS):
         with cols[i % 2]:
             if st.button(text, key=f"quick_{i}", use_container_width=True):
-                st.session_state.dispatch_prompt = text
+                st.session_state.dispatch_prompt = {
+                    "turn_id": uuid.uuid4().hex,
+                    "prompt": text,
+                }
                 st.rerun()
 
 
@@ -618,7 +626,7 @@ def _handle_approval(approved: bool) -> None:
         _append_and_persist("assistant", f"**审批失败**：{exc}")
 
 
-def _execute_agent_turn(prompt: str) -> None:
+def _execute_agent_turn(prompt: str, turn_id: str) -> None:
     """在同一轮渲染内流式执行 Agent，避免整页双重重跑。"""
     with st.chat_message("assistant"):
         placeholder = st.empty()
@@ -641,28 +649,49 @@ def _execute_agent_turn(prompt: str) -> None:
                 )
             )
         except MaxTurnsExceeded:
-            _append_and_persist("assistant", "运行超时：问题较复杂，请拆分后重试。")
+            _append_and_persist(
+                "assistant",
+                "运行超时：问题较复杂，请拆分后重试。",
+                message_id=f"{turn_id}:assistant",
+            )
             return
         except Exception as exc:
             _append_and_persist(
-                "assistant", f"**运行失败**：{type(exc).__name__}: {exc}"
+                "assistant",
+                f"**运行失败**：{type(exc).__name__}: {exc}",
+                message_id=f"{turn_id}:assistant",
             )
             return
 
         if isinstance(result, PendingApprovalRecord):
             st.session_state.pending_approval = result
             note = buffer["text"] or "已触发敏感操作，请在下方确认。"
-            _append_and_persist("assistant", note, react_steps=react_steps)
+            _append_and_persist(
+                "assistant",
+                note,
+                react_steps=react_steps,
+                message_id=f"{turn_id}:assistant",
+            )
         elif result and getattr(result, "interruptions", None):
             st.session_state.pending_approval = result
             note = buffer["text"] or "已触发敏感操作，请在下方确认。"
-            _append_and_persist("assistant", note, react_steps=react_steps)
+            _append_and_persist(
+                "assistant",
+                note,
+                react_steps=react_steps,
+                message_id=f"{turn_id}:assistant",
+            )
         else:
             streamed = sanitize_user_visible_output(buffer["text"])
             final = sanitize_user_visible_output(text or "") or streamed
             if final:
                 placeholder.markdown(final)
-                _append_and_persist("assistant", final, react_steps=react_steps)
+                _append_and_persist(
+                    "assistant",
+                    final,
+                    react_steps=react_steps,
+                    message_id=f"{turn_id}:assistant",
+                )
                 if st.session_state.show_react_steps:
                     _render_react_steps(react_steps)
 
@@ -689,12 +718,18 @@ def _render_approval_card() -> None:
         st.rerun()
 
 
-def _dispatch_user_prompt(prompt: str) -> None:
+def _dispatch_user_prompt(prompt: str, turn_id: str) -> None:
     """执行一轮用户消息（快捷问题或输入框共用）。"""
-    _append_and_persist("user", prompt)
+    inserted = _append_and_persist(
+        "user",
+        prompt,
+        message_id=f"{turn_id}:user",
+    )
+    if not inserted:
+        return
     with st.chat_message("user"):
         st.markdown(prompt)
-    _execute_agent_turn(prompt)
+    _execute_agent_turn(prompt, turn_id)
 
 
 def _render_chat() -> None:
@@ -710,7 +745,9 @@ def _render_chat() -> None:
 
     dispatch = st.session_state.pop("dispatch_prompt", None)
     if dispatch:
-        _dispatch_user_prompt(dispatch)
+        if isinstance(dispatch, str):
+            dispatch = {"turn_id": uuid.uuid4().hex, "prompt": dispatch}
+        _dispatch_user_prompt(dispatch["prompt"], dispatch["turn_id"])
         st.rerun()
 
     for msg in st.session_state.ui_messages:
@@ -735,7 +772,10 @@ def _render_chat() -> None:
         if st.session_state.pending_approval:
             st.warning("请先处理上方审批，再继续输入。")
             return
-        _dispatch_user_prompt(prompt)
+        st.session_state.dispatch_prompt = {
+            "turn_id": uuid.uuid4().hex,
+            "prompt": prompt,
+        }
         st.rerun()
 
 

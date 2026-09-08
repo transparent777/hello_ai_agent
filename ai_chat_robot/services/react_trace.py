@@ -68,7 +68,9 @@ class ReactStepCollector:
         item = event.item
         layer = react_layer_label(self._agent_name)
 
-        if event.name == "handoff_requested" or event.name == "handoff_occured":
+        # Only the completed handoff changes workflow state. Counting both the
+        # request and completion events makes one dispatch look like two.
+        if event.name == "handoff_occured":
             target = _handoff_target(item)
             step = ReactStep(
                 layer=layer,

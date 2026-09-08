@@ -74,6 +74,53 @@ def test_read_write_roundtrip():
             _restore_workspace(original)
 
 
+def test_read_docx_extracts_text_without_binary_noise():
+    from docx import Document
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        original = _with_workspace(root)
+        try:
+            document = Document()
+            document.add_paragraph("中文文档正文")
+            document.save(root / "sample.docx")
+
+            out = read_file_impl("sample.docx")
+
+            assert "中文文档正文" in out
+            assert "\ufffd" not in out
+        finally:
+            _restore_workspace(original)
+
+
+def test_read_binary_file_is_rejected_without_replacement_text():
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        original = _with_workspace(root)
+        try:
+            (root / "sample.bin").write_bytes(b"\x00\xff\xfe\x01")
+
+            out = read_file_impl("sample.bin")
+
+            assert "无法按文本读取二进制文件" in out
+            assert "\ufffd" not in out
+        finally:
+            _restore_workspace(original)
+
+
+def test_write_file_rejects_binary_document_extension():
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        original = _with_workspace(root)
+        try:
+            out = write_file_impl("broken.docx", "not really a docx")
+
+            assert "export_*" in out
+            assert not (root / "broken.docx").exists()
+        finally:
+            _restore_workspace(original)
+
+
 def test_list_files_shows_entries():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

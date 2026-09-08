@@ -30,11 +30,11 @@ from orchestrator.handoff_policy import (
     prepare_router_input,
     sanitize_user_visible_output,
 )
-from orchestrator.stream_runtime import hierarchical_max_turns, run as _run_stream
+from orchestrator.stream_runtime import run as _run_stream
 from orchestrator.turn_state import clear_turn_state, reset_turn_state
 from sandbox.memory_sync import refresh_memory_summary
 from sandbox.metrics import record_event, track_duration
-from sandbox.ops import run_with_retries, run_with_sandbox_slot
+from sandbox.ops import run_with_sandbox_slot
 from adapters.sandbox_runtime import publish_workspace_outputs
 from sandbox.settings import SANDBOX_RUN_TIMEOUT_SECONDS
 from services.react_trace import ReactStep
@@ -50,21 +50,6 @@ async def run_streamed_turn(*args: Any, **kwargs: Any):
 async def resume_from_state(*args: Any, **kwargs: Any):
     """Backward-compatible entry point for resuming a paused turn."""
     return await _run_stream(*args, **kwargs)
-
-
-def _hierarchical_max_turns() -> int:
-    return hierarchical_max_turns()
-
-
-def _guardrail_retryable(exc: BaseException) -> bool:
-    return not isinstance(
-        exc,
-        (
-            InputGuardrailTripwireTriggered,
-            OutputGuardrailTripwireTriggered,
-            ToolInputGuardrailTripwireTriggered,
-        ),
-    )
 
 
 def _finalize_user_output(
@@ -128,11 +113,9 @@ async def handle_user_turn(
                         )
                     return await operation()
 
-                _, result, steps = await run_with_retries(
-                    _run_once,
-                    retryable=_guardrail_retryable,
-                )
-                react_steps.extend(steps)
+                # A streamed turn cannot be retried safely after publishing text,
+                # updating its session, or invoking a side-effecting tool.
+                _, result, _steps = await _run_once()
 
             if result.interruptions:
                 pending = capture_pending_approval(session.session_id, result)
@@ -166,11 +149,10 @@ async def handle_user_turn(
             )
         except MaxTurnsExceeded:
             record_event("agent_turn_max_turns_exceeded")
-            print(f"\n[运行时失败] 超过最大轮次限制（max_turns={_hierarchical_max_turns()}）。")
+            raise
         except Exception as exc:
             record_event("agent_turn_failed", error=type(exc).__name__)
-            print(f"\n[运行时失败] {type(exc).__name__}: {exc}")
-        return None, None, react_steps
+            raise
 
     try:
         with trace(

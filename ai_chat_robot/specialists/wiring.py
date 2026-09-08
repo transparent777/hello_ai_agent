@@ -18,4 +18,4 @@ def apply_handoff_links() -> None:
             continue
         existing = list(getattr(specialist, "handoffs", None) or [])
         if workspace_router not in existing:
-            specialist.handoffs = [workspace_router]
+            specialist.handoffs = [*existing, workspace_router]

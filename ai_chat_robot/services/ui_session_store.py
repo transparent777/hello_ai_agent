@@ -63,6 +63,19 @@ def _ensure_meta_column(conn: sqlite3.Connection) -> None:
         conn.commit()
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE ui_chat_messages ADD COLUMN message_id TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ui_chat_messages_message_id
+        ON ui_chat_messages (session_id, message_id)
+        WHERE message_id IS NOT NULL
+        """
+    )
+    conn.commit()
 
 
 def touch_session(db_path: Path, session_id: str, title: str | None = None) -> None:
@@ -99,8 +112,9 @@ def append_message(
     content: str,
     *,
     meta_json: str | None = None,
+    message_id: str | None = None,
     owner_id: str | None = None,
-) -> None:
+) -> bool:
     _assert_owner(session_id, owner_id)
     now = datetime.now().isoformat(timespec="seconds")
     title = None
@@ -110,14 +124,16 @@ def append_message(
     touch_session(db_path, session_id, title=title)
     with _connect(db_path) as conn:
         _ensure_meta_column(conn)
-        conn.execute(
+        cursor = conn.execute(
             """
-            INSERT INTO ui_chat_messages (session_id, role, content, created_at, meta_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO ui_chat_messages
+                (session_id, role, content, created_at, meta_json, message_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (session_id, role, content, now, meta_json),
+            (session_id, role, content, now, meta_json, message_id),
         )
         conn.commit()
+        return cursor.rowcount > 0
 
 
 def load_messages(

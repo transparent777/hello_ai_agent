@@ -183,7 +183,7 @@ config -> (无业务模块依赖)
 
 - `orchestrator/stream_runtime.py` 统一 Agent SDK 的新运行与状态恢复流程，集中处理 stream event、文本增量、handoff 和 React 步骤。
 - `orchestrator/approval_runtime.py` 集中处理审批记录、状态恢复、审批审计、产物发布和记忆刷新。
-- `orchestrator/runner.py` 只负责一轮用户请求的生命周期、重试、沙箱配额、guardrail 错误映射和最终输出整理；`run_streamed_turn`、`resume_from_state` 等旧名称仍作为兼容入口。
+- `orchestrator/runner.py` 只负责一轮用户请求的生命周期、沙箱配额、guardrail 错误映射和最终输出整理；一轮流式 Agent 执行只运行一次，传输重试由模型客户端负责，避免重复 token 与工具副作用；`run_streamed_turn`、`resume_from_state` 等旧名称仍作为兼容入口。
 
 新的依赖方向为：
 
@@ -196,7 +196,7 @@ entrypoints -> runner -> stream_runtime / approval_runtime
 
 ## Third-round extraction
 
-The third round keeps the public orchestrator imports stable while separating SDK stream handling (`orchestrator/stream_runtime.py`) from approval state and publication (`orchestrator/approval_runtime.py`). `runner.py` now coordinates one user-turn lifecycle, retries, sandbox slots, guardrail mapping, and output finalization.
+The third round keeps the public orchestrator imports stable while separating SDK stream handling (`orchestrator/stream_runtime.py`) from approval state and publication (`orchestrator/approval_runtime.py`). `runner.py` now coordinates one user-turn lifecycle, sandbox slots, guardrail mapping, and output finalization. A streamed turn executes once; only the model transport may retry before application events are published.
 
 ## Fourth-round capability boundary
 

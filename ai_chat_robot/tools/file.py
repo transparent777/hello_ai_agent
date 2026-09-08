@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from agents import function_tool
+from docx.opc.exceptions import PackageNotFoundError
 
 from config.file_agent import (
     DATA_READ_ROOT,
@@ -24,6 +25,9 @@ from sandbox.audit import log_audit_event
 DATA_VIRTUAL_PREFIX = "data/"
 # Excel（尤其中文版 Windows）识别 UTF-8 需要 BOM
 CSV_ENCODING = "utf-8-sig"
+_BINARY_DOCUMENT_SUFFIXES = frozenset(
+    {".doc", ".docx", ".xls", ".xlsx", ".pdf", ".zip", ".png", ".jpg", ".jpeg"}
+)
 
 
 def _safe_csv_cell(value: object) -> object:
@@ -242,6 +246,28 @@ def _format_read_response(
     return f"{header}\n\n{content}"
 
 
+def _extract_docx_text(path: Path) -> str:
+    from docx import Document
+
+    document = Document(path)
+    blocks = [paragraph.text for paragraph in document.paragraphs if paragraph.text]
+    for table in document.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                blocks.append("\t".join(cells))
+    return "\n".join(blocks)
+
+
+def _read_text_content(path: Path) -> str:
+    if path.suffix.lower() == ".docx":
+        return _extract_docx_text(path)
+    content = path.read_text(encoding="utf-8-sig", errors="strict")
+    if "\x00" in content:
+        raise ValueError("NUL byte in text file")
+    return content
+
+
 def read_file_impl(relative_path: str) -> str:
     """读取工作区或 data/ 内文本文件。"""
     path = resolve_safe_path(relative_path)
@@ -257,7 +283,19 @@ def read_file_impl(relative_path: str) -> str:
             f"{FILE_AGENT_MAX_READ_BYTES} bytes：{relative_path}"
         )
 
-    content = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        content = _read_text_content(path)
+    except (OSError, PackageNotFoundError, UnicodeDecodeError, ValueError):
+        log_audit_event(
+            "file_agent_read",
+            status="rejected",
+            detail=relative_path,
+            extra={"bytes": size, "reason": "binary_file"},
+        )
+        return (
+            f"无法按文本读取二进制文件：{relative_path}。"
+            "DOCX 请确认文件未损坏；其他二进制格式请使用对应的解析工具。"
+        )
     zone = "data（只读）" if is_data_virtual_path(relative_path) else "workspace_user"
     display, total_lines, truncated = _normalize_display_content(relative_path, content)
     log_audit_event(
@@ -280,6 +318,11 @@ def write_file_impl(relative_path: str, content: str) -> str:
     """写入工作区内文本文件（覆盖）；不可写 data/。"""
     if is_data_virtual_path(relative_path):
         return "data/ 为示例数据只读区，不可写入。请写入 workspace_user/ 下路径。"
+    if Path(relative_path).suffix.lower() in _BINARY_DOCUMENT_SUFFIXES:
+        return (
+            "write_file 仅写入文本文件。DOCX/XLSX 等二进制文档"
+            "请使用对应的 export_* 工具。"
+        )
 
     if len(content.encode("utf-8")) > FILE_AGENT_MAX_WRITE_BYTES:
         return (
